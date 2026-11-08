@@ -1,4 +1,36 @@
 <!DOCTYPE html>
+<!--
+  IHM do robô móvel 2WD - controle de posição por odometria (arquivo único).
+  Conversa com o firmware "firmware_robo_esp32.ino" por Bluetooth LE (Nordic UART)
+  ou por USB (Web Serial). Abrir no Chrome ou no Edge.
+
+  ORGANIZAÇÃO DO ARQUIVO
+    1. <style>   Estilos, em blocos: base, topo, grade, leitores, osciloscópio, teclado,
+                 histórico, quadro dos 7, mensagens, abas Dirigir e Andar reto, responsivo.
+    2. <body>    Estrutura: topo, leitores, osciloscópio, teclado, histórico, quadro dos 7,
+                 mensagens, abas Dirigir e Andar reto.
+    3. <script>  Lógica, na ordem de dependência (cada bloco só usa os de cima):
+         A. Protocolo           constantes e leitura das linhas do firmware
+         B. Utilitários         atalhos de DOM e formatação
+         C. Métricas            resposta ao degrau (reserva, quando não há linha R)
+         D. Arquivo             tentativas, oficial, exportação CSV
+         E. Osciloscópio        desenho em canvas
+         F. Conexão             Bluetooth e USB
+         G. Direção manual      teclas -> comando "J"
+         H. Estado              configuração, experimento em andamento, instâncias
+         I. Abas Dirigir/Reto   PID de rotação e da diferença entre as rodas
+         J. Recepção            tratamento das linhas recebidas
+         K. Controles           teclado de controle e ajustes
+         L. Leitores            mostradores
+         M. Desenho             osciloscópio, histórico e quadro dos 7
+         N. Mensagens/arquivos  log de mensagens e download
+         O. Telas               Sintonia, Apresentação, Dirigir, Andar reto
+         P. Ligações e início   eventos e iniciar()
+
+  FLUXO: a IHM envia comandos de texto (MODO, GANHO, REF, INICIAR...) e o firmware responde
+  com linhas CSV (E, T, C, P, R, LH, LD, LF). Os dados ao vivo (E) alimentam o gráfico; ao
+  terminar, o LOG do ESP32 (LH/LD/LF) substitui os dados ao vivo pelo registro completo.
+-->
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -6,13 +38,19 @@
 <title>IHM Robô · Instrumento</title>
 <link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
+/* =====================================================================
+   1. BASE: variáveis, tipografia, teclas
+   ===================================================================== */
 :root {
   color-scheme: dark;
+  /* Superfícies */
   --chassi: #26303B; --painel: #323E4B; --painel-2: #3A4757; --vinco: #1C242D;
   --serigrafia: #D9E1E8; --serigrafia-2: #9DB0C0;
   --tela: #0C1E2B;
+  /* Sinais e estados */
   --pos: #FFB23F; --erro: #5FD3E6; --roda-a: #7AA7FF; --roda-b: #FF7EB0;
   --iniciar: #3DBE7A; --parar: #E5484D; --ativo: #FFB23F;
+  /* Fontes */
   --ui: "Saira Semi Condensed", "Arial Narrow", "Segoe UI", sans-serif;
   --display: "Share Tech Mono", ui-monospace, Consolas, monospace;
 }
@@ -40,7 +78,9 @@ button, input, select { font: inherit; color: inherit; }
 button:disabled, input:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
 kbd { font: .75rem var(--display); opacity: .75; margin-left: 6px; }
 
-/* Topo */
+/* =====================================================================
+   2. TOPO: marca, conexão, seletor de tela
+   ===================================================================== */
 .topo { display: flex; align-items: center; gap: 12px 24px; flex-wrap: wrap; padding: 14px 20px; max-width: 1480px; margin: 0 auto; }
 .marca p { margin: 0; color: var(--serigrafia-2); font-size: .875rem; }
 .conexao { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: wrap; color: var(--serigrafia-2); }
@@ -53,7 +93,9 @@ kbd { font: .75rem var(--display); opacity: .75; margin-left: 6px; }
 .aviso { max-width: 1480px; margin: 0 auto 10px; padding: 0 20px; color: #FF9A9D; }
 .aviso:empty { display: none; }
 
-/* Bancada: grade dos módulos */
+/* =====================================================================
+   3. BANCADA: grade dos módulos e modos de tela (Sintonia, Apresentação)
+   ===================================================================== */
 .bancada { max-width: 1480px; margin: 0 auto; padding: 0 20px 24px; display: grid; gap: 14px; }
 .modulo { background: var(--painel); border: 1px solid var(--vinco); border-radius: 12px; padding: 14px 16px; min-width: 0;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
@@ -70,7 +112,9 @@ body[data-tela="apresentacao"] :is(.historico, .mensagens, .ajustes) { display: 
 .leitores { grid-area: leitores; } .tela { grid-area: tela; } .teclado { grid-area: teclado; }
 .historico { grid-area: historico; } .quadro { grid-area: quadro; } .mensagens { grid-area: mensagens; }
 
-/* Leitores */
+/* =====================================================================
+   4. LEITORES: estado do experimento e mostradores
+   ===================================================================== */
 .ident { display: flex; align-items: center; gap: 12px; }
 .led-estado { width: 16px; height: 16px; border-radius: 50%; background: #55606C; flex: none; }
 .led-estado[data-e="1"], .led-estado[data-e="2"] { background: var(--ativo); box-shadow: 0 0 10px var(--ativo); }
@@ -95,7 +139,9 @@ body[data-tela="apresentacao"] .controlador { font-size: clamp(2.25rem, 4vw, 3.5
 body[data-tela="apresentacao"] .ident { flex-wrap: wrap; }
 body[data-tela="apresentacao"] .relogio { margin-left: 0; width: 100%; padding-left: 28px; }
 
-/* Tela */
+/* =====================================================================
+   5. TELA (osciloscópio): canais, moldura e canvas
+   ===================================================================== */
 .tela-topo, .tela-base, .msg-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .tela-base { margin-top: 10px; }
 .tela-base p { margin: 0; color: var(--serigrafia-2); font-size: .875rem; }
@@ -112,7 +158,9 @@ body[data-tela="apresentacao"] .relogio { margin-left: 0; width: 100%; padding-l
 body[data-tela="apresentacao"] .tela .moldura canvas { height: 520px; }
 .acoes { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Teclado */
+/* =====================================================================
+   6. TECLADO DE CONTROLE: modos, ganhos, referência, comandos, ajustes
+   ===================================================================== */
 .teclado { display: grid; gap: 14px; align-content: start; }
 .grupo { display: grid; gap: 8px; }
 .modos { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
@@ -143,7 +191,9 @@ select { font-family: var(--ui); }
 .chave { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .chave input { width: 18px; height: 18px; accent-color: var(--ativo); margin: 0; }
 
-/* Histórico */
+/* =====================================================================
+   7. HISTÓRICO DE TENTATIVAS (tela Sintonia)
+   ===================================================================== */
 .historico { display: grid; gap: 8px; align-content: start; }
 .tentativas { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 760px; overflow: auto; }
 .tentativa { background: var(--chassi); border: 1px solid var(--vinco); border-radius: 8px; padding: 8px 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; }
@@ -157,7 +207,9 @@ select { font-family: var(--ui); }
 .tentativa .botoes button { min-height: 30px; padding: 2px 10px; font-size: .875rem; }
 .vazio { color: var(--serigrafia-2); }
 
-/* Quadro dos 7 */
+/* =====================================================================
+   8. QUADRO DOS 7 (tela Apresentação): gráfico e tabela comparativa
+   ===================================================================== */
 .quadro-corpo { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .quadro .moldura canvas { height: 340px; }
 .tabela7 { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .9375rem; }
@@ -168,13 +220,17 @@ select { font-family: var(--ui); }
 .tabela7 tr.sem td { color: #66778A; }
 .tabela7 td:nth-child(2) { font-size: .8125rem; color: var(--serigrafia-2); }
 
-/* Mensagens */
+/* =====================================================================
+   9. MENSAGENS DO ROBÔ E COMANDO DE TEXTO (tela Sintonia)
+   ===================================================================== */
 #log { height: 190px; overflow: auto; margin: 10px 0; padding: 8px 10px; background: var(--tela); border-radius: 6px;
   font: .8125rem/1.45 var(--display); color: var(--serigrafia-2); white-space: pre-wrap; }
 #log .env { color: var(--roda-a); } #log .erro { color: #FF9A9D; } #log .ok { color: var(--iniciar); }
 .linha-cmd { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 
-/* Abas Dirigir e Andar reto */
+/* =====================================================================
+   10. ABAS DIRIGIR E ANDAR RETO
+   ===================================================================== */
 .dirigir, .reto { display: none; }
 body[data-tela="dirigir"] .bancada, body[data-tela="reto"] .bancada { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
 body[data-tela="dirigir"] .bancada > :not(.dirigir), body[data-tela="reto"] .bancada > :not(.reto) { display: none; }
@@ -209,6 +265,9 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
 .aviso-local { margin: 0; color: var(--ativo); }
 .aviso-local:empty { display: none; }
 
+/* =====================================================================
+   11. RESPONSIVO (tablet e celular) E MOVIMENTO REDUZIDO
+   ===================================================================== */
 @media (max-width: 1100px) {
   .pids { grid-template-columns: minmax(0, 1fr); }
   body[data-tela="reto"] .reto { grid-template-columns: minmax(0, 1fr); }
@@ -245,10 +304,11 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
   .tabela7 th:nth-child(2), .tabela7 td:nth-child(2) { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
-
 </style>
 </head>
 <body data-tela="sintonia">
+
+<!-- ===================== TOPO: marca, conexão e seletor de tela ===================== -->
 <header class="topo">
   <div class="marca">
     <h1>Robô móvel 2WD</h1>
@@ -270,7 +330,8 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
 <p class="aviso" id="aviso" role="alert"></p>
 
 <main class="bancada">
-  <!-- Leitores -->
+
+  <!-- ===================== LEITORES: estado e mostradores ===================== -->
   <section class="leitores modulo" aria-label="Monitoramento">
     <div class="ident">
       <span class="led-estado" id="ledEstado" data-e="0" aria-hidden="true"></span>
@@ -289,7 +350,7 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     </dl>
   </section>
 
-  <!-- Tela do osciloscópio -->
+  <!-- ===================== TELA: osciloscópio ===================== -->
   <section class="tela modulo" aria-labelledby="tituloTela">
     <div class="tela-topo">
       <h2 id="tituloTela">Nenhum experimento ainda</h2>
@@ -310,7 +371,7 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     </div>
   </section>
 
-  <!-- Teclado de controle -->
+  <!-- ===================== TECLADO DE CONTROLE ===================== -->
   <section class="teclado modulo req-con" aria-label="Controle">
     <div class="grupo">
       <h3>Controlador</h3>
@@ -356,14 +417,14 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     </details>
   </section>
 
-  <!-- Histórico (Sintonia) -->
+  <!-- ===================== HISTÓRICO (tela Sintonia) ===================== -->
   <section class="historico modulo" aria-labelledby="tituloHist">
     <h2 id="tituloHist">Tentativas de <span id="hModo">PID</span></h2>
     <p class="nota">A estrela marca a tentativa oficial deste controlador, a que vai para a apresentação.</p>
     <ol class="tentativas" id="tentativas"></ol>
   </section>
 
-  <!-- Quadro dos 7 (Apresentação) -->
+  <!-- ===================== QUADRO DOS 7 (tela Apresentação) ===================== -->
   <section class="quadro modulo" aria-labelledby="tituloQuadro">
     <h2 id="tituloQuadro">Comparação dos controladores</h2>
     <div class="quadro-corpo">
@@ -375,7 +436,7 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     </div>
   </section>
 
-  <!-- Mensagens e exportação (Sintonia) -->
+  <!-- ===================== MENSAGENS E EXPORTAÇÃO (tela Sintonia) ===================== -->
   <section class="mensagens modulo" aria-labelledby="tituloMsg">
     <div class="msg-topo">
       <h2 id="tituloMsg">Mensagens do robô</h2>
@@ -385,7 +446,7 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     <form id="formCmd" class="linha-cmd req-con"><input type="text" id="cmd" placeholder="Comando de texto, por exemplo GANHO 4 0 1" autocomplete="off" aria-label="Comando de texto"><button class="tecla" type="submit">Enviar</button></form>
   </section>
 
-  <!-- Aba Dirigir: teclas e PID de rotação das rodas -->
+  <!-- ===================== ABA DIRIGIR: teclas e PID de rotação das rodas ===================== -->
   <div class="dirigir">
     <section class="modulo direcao req-con" aria-labelledby="tituloDir">
       <h2 id="tituloDir">Dirigir</h2>
@@ -413,7 +474,7 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     <div class="pids req-con" aria-label="PID de rotação"></div>
   </div>
 
-  <!-- Aba Andar reto: PID da diferença entre as rodas, separado do resto -->
+  <!-- ===================== ABA ANDAR RETO: PID da diferença entre as rodas ===================== -->
   <div class="reto">
     <section class="modulo reto-info req-con" aria-labelledby="tituloReto">
       <h2 id="tituloReto">Andar reto: PID da diferença entre as rodas</h2>
@@ -427,6 +488,8 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     <div id="pidReto" class="req-con"></div>
   </div>
 </main>
+
+<!-- Modelo do módulo de PID (clonado pela aba Dirigir e pela aba Andar reto) -->
 <template id="tplPid">
   <section class="modulo pid">
     <h2 class="titulo"></h2>
@@ -448,15 +511,22 @@ body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid
     </div>
   </section>
 </template>
+
 <script>
 "use strict";
-// ---------------- protocolo: linhas do firmware v2 ----------------
+
+/* =====================================================================
+   A. PROTOCOLO
+   Constantes do protocolo do firmware e leitura das linhas recebidas.
+   Linhas de dados: E, P, R, C, T, N, LH, LD, LF. O resto é texto livre.
+   ===================================================================== */
 const MODOS = ["MA", "P", "I", "D", "PI", "PD", "PID"];
 const NOME_MODO = ["Malha aberta", "Proporcional", "Integral", "Derivativo", "PI", "PD", "PID"];
-const TERMOS = [0, 1, 2, 4, 3, 5, 7];
+const TERMOS = [0, 1, 2, 4, 3, 5, 7];   // bit0 = P, bit1 = I, bit2 = D (igual ao firmware)
 const ESTADOS = ["Pronto", "Executando", "Finalizando", "Concluído", "Parado", "Tempo esgotado"];
 const TIPOS_DADOS = new Set(["E", "P", "R", "C", "T", "N", "LH", "LD", "LF"]);
 
+// "E,1.2,3" -> { tipo: "E", v: [1.2, 3] };  texto livre -> { tipo: "texto", texto }
 function analisarLinha(linha) {
   const l = linha.replace(/\r$/, "");
   const i = l.indexOf(",");
@@ -464,9 +534,30 @@ function analisarLinha(linha) {
   if (TIPOS_DADOS.has(tipo)) return { tipo, v: l.slice(i + 1).split(",").map(Number) };
   return { tipo: "texto", texto: l };
 }
-if (typeof module !== "undefined") module.exports = { analisarLinha, MODOS, NOME_MODO, TERMOS, ESTADOS };
 
-// ---------------- métricas de resposta ao degrau ----------------
+/* =====================================================================
+   B. UTILITÁRIOS
+   Atalhos de DOM, formatação em pt-BR e armazenamento local.
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const on = (id, ev, fn) => { const e = $(id); if (e) e.addEventListener(ev, fn); };
+const txt = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const fmtBr = (v, d) => v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmt = (v, d = 0) => (Number.isFinite(v) ? fmtBr(v, d) : "—");
+const comSinal = (v, d = 0) => (Number.isFinite(v) ? (v > 0 ? "+" : "") + fmtBr(v, d) : "—");
+const carimbo = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+
+// localStorage pode não existir (modo privado, arquivo local bloqueado): cai para um armazenamento vazio.
+const armazenamento = (() => { try { return window.localStorage; } catch (e) { return { getItem: () => null, setItem() {} }; } })();
+
+/* =====================================================================
+   C. MÉTRICAS
+   Resposta ao degrau calculada na IHM. É a reserva para dados recebidos
+   só ao vivo; com a linha R ou o LOG do ESP32 valem os valores do firmware.
+   Mantém a mesma lógica de enviarResultado() no firmware.
+   ===================================================================== */
 function calcularMetricas(amostras, ref, tolMm) {
   if (!amostras || !amostras.length) return null;
   const tol = (tolMm || 10) / 1000;
@@ -485,19 +576,19 @@ function calcularMetricas(amostras, ref, tolMm) {
     tSub: t10 !== null && t90 !== null ? t90 - t10 : NaN, tAcom, dur: amostras[amostras.length - 1].t,
   };
 }
-if (typeof module !== "undefined") module.exports = { calcularMetricas };
 
-// ---------------- arquivo de experimentos ----------------
-// No Node os módulos vêm por require; na página, das declarações anteriores do mesmo script.
-const _dep = typeof require !== "undefined"
-  ? { ...require("./metricas.js"), ...require("./protocolo.js") }
-  : { calcularMetricas, MODOS, ESTADOS };
+/* =====================================================================
+   D. ARQUIVO DE EXPERIMENTOS
+   Guarda as tentativas (até 60) no localStorage, marca a oficial de cada
+   controlador, escolhe a "anterior" (fantasma) e exporta CSV.
+   ===================================================================== */
 const CHAVE_ARQUIVO = "ihm-c-experimentos";
 const MAX_EXPERIMENTOS = 60;
 
 class Arquivo {
   constructor(armazenamento) { this.arm = armazenamento; this.runs = []; this.seq = 0; }
 
+  // ---------- Criação e atualização de tentativas ----------
   novo(modo, ref, ganhos, tolMm, unidade) {
     const r = {
       id: ++this.seq, hora: new Date().toLocaleTimeString("pt-BR"), modo, ref,
@@ -516,7 +607,7 @@ class Arquivo {
 
   finalizar(r, estado) {
     r.estado = estado;
-    if (!r.met) r.met = _dep.calcularMetricas(r.amostras, r.ref, r.tol);
+    if (!r.met) r.met = calcularMetricas(r.amostras, r.ref, r.tol);
     this.salvar();
   }
 
@@ -544,7 +635,7 @@ class Arquivo {
     }
     Object.assign(r, { ref: cab.ref, kp: cab.kp, ki: cab.ki, kd: cab.kd, unidade: cab.unidade, logEsp: true });
     r.amostras = amostras.map((s) => ({ ...s, ref: cab.ref }));
-    if (!r.met) r.met = _dep.calcularMetricas(r.amostras, r.ref, r.tol);
+    if (!r.met) r.met = calcularMetricas(r.amostras, r.ref, r.tol);
     this.salvar();
     return r;
   }
@@ -552,15 +643,18 @@ class Arquivo {
   // A linha R só vale para o experimento em andamento do mesmo modo.
   alvoDoResultado(atual, v) { return atual && atual.modo === v[0] ? atual : null; }
 
+  // ---------- Consultas ----------
   concluido(r) { return r.estado !== 1 && r.estado !== 2; }
   porId(id) { return this.runs.find((r) => r.id === id) || null; }
   doModo(modo) { return this.runs.filter((r) => r.modo === modo); }
 
+  // Tentativa concluída anterior do mesmo controlador (desenhada em segundo plano).
   anterior(r) {
     const lista = this.doModo(r.modo).filter((x) => this.concluido(x) && x.id < r.id && x.amostras.length);
     return lista[lista.length - 1] || null;
   }
 
+  // Tentativa oficial do controlador: a marcada com estrela ou, na falta, a última concluída.
   oficial(modo) {
     const lista = this.doModo(modo).filter((x) => this.concluido(x) && x.amostras.length);
     return lista.find((x) => x.oficial) || lista[lista.length - 1] || null;
@@ -575,6 +669,7 @@ class Arquivo {
   remover(id) { this.runs = this.runs.filter((r) => r.id !== id); this.salvar(); }
   limpar() { this.runs = []; this.salvar(); }
 
+  // ---------- Persistência ----------
   salvar() {
     try { this.arm.setItem(CHAVE_ARQUIVO, JSON.stringify(this.runs)); } catch (e) { /* sem armazenamento */ }
   }
@@ -583,17 +678,18 @@ class Arquivo {
       const v = JSON.parse(this.arm.getItem(CHAVE_ARQUIVO) || "[]");
       if (!Array.isArray(v)) return;
       this.runs = v.filter((r) => r && Array.isArray(r.amostras));
-      for (const r of this.runs) if (!this.concluido(r)) r.estado = 4;
+      for (const r of this.runs) if (!this.concluido(r)) r.estado = 4;   // ficou "rodando": marca como parado
       this.seq = this.runs.reduce((m, r) => Math.max(m, r.id), 0);
     } catch (e) { this.runs = []; }
   }
 
+  // ---------- Exportação (CSV com ";" e vírgula decimal, para abrir no Excel em pt-BR) ----------
   csvDados() {
     const n = (v, d) => (Number.isFinite(v) ? v.toFixed(d).replace(".", ",") : "");
     const l = ["experimento;controle;kp;ki;kd;referencia_m;t_s;posicao_m;erro_mm;u;vel_cmd_A;vel_cmd_B;vel_medida_A_rpm;vel_medida_B_rpm;unidade_vel;fonte"];
     for (const r of this.runs) for (const s of r.amostras) {
       const ref = s.ref ?? r.ref;
-      l.push([r.id, _dep.MODOS[r.modo], n(r.kp, 3), n(r.ki, 3), n(r.kd, 3), n(ref, 3), n(s.t, 2), n(s.pos, 4),
+      l.push([r.id, MODOS[r.modo], n(r.kp, 3), n(r.ki, 3), n(r.kd, 3), n(ref, 3), n(s.t, 2), n(s.pos, 4),
         n((ref - s.pos) * 1000, 1), n(s.u, 1), n(s.cA, 1), n(s.cB, 1), n(s.rA, 1), n(s.rB, 1),
         r.unidade ? "%PWM" : "RPM", r.logEsp ? "ESP32" : "ao vivo"].join(";"));
     }
@@ -605,28 +701,30 @@ class Arquivo {
     const l = ["experimento;hora;controle;oficial;kp;ki;kd;referencia_m;posicao_final_m;erro_final_mm;sobressinal_mm;sobressinal_pct;t_subida_s;t_acomodacao_s;duracao_s;estado"];
     for (const r of this.runs) {
       const m = r.met || {};
-      l.push([r.id, r.hora, _dep.MODOS[r.modo], this.oficial(r.modo) === r ? "sim" : "", n(r.kp, 3), n(r.ki, 3), n(r.kd, 3),
+      l.push([r.id, r.hora, MODOS[r.modo], this.oficial(r.modo) === r ? "sim" : "", n(r.kp, 3), n(r.ki, 3), n(r.kd, 3),
         n(r.ref, 3), n(m.final, 4), n(m.erro, 1), n(m.sobre, 1), n(m.sobrePct, 1), n(m.tSub, 2), n(m.tAcom, 2),
-        n(m.dur, 2), _dep.ESTADOS[r.estado]].join(";"));
+        n(m.dur, 2), ESTADOS[r.estado]].join(";"));
     }
     return l.join("\r\n");
   }
 }
-if (typeof module !== "undefined") module.exports = { Arquivo };
 
-// ---------------- osciloscópio (canvas, sem bibliotecas) ----------------
+/* =====================================================================
+   E. OSCILOSCÓPIO (canvas, sem bibliotecas)
+   Faixas empilhadas com eixo de tempo comum (10 divisões) e grade.
+   faixas: [{ rotulo, unidade, oculta, series: [{pts, cor, larg, trac, alfa}], linhasH: [], tol: [y1, y2] }]
+   opcoes: { xMax, divY }
+   ===================================================================== */
 const COR_TELA = { fundo: "#0C1E2B", grade: "#1F3E50", eixo: "#2F5A70", texto: "#8FB3C6", faixa: "rgba(255,178,63,.10)" };
 
+// Passo "redondo" (1, 2, 2,5, 5 x 10^n) para as divisões da grade.
 function passoBonito(bruto) {
   if (!(bruto > 0)) return 1;
   const mag = 10 ** Math.floor(Math.log10(bruto)), r = bruto / mag;
   return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
 }
-const fmtBr = (v, d) => v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
 const casasDe = (p) => (p >= 1 ? 0 : p >= 0.1 ? 1 : p >= 0.01 ? 2 : 3);
 
-// faixas: [{ rotulo, unidade, series: [{pts, cor, larg, trac, alfa}], linhasH: [], tol: [y1,y2] }]
-// opcoes: { xMax, divY: 4 }
 function desenharOsc(cv, faixas, opcoes = {}) {
   if (!cv || !cv.clientWidth || !cv.clientHeight) return;
   const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
@@ -641,7 +739,7 @@ function desenharOsc(cv, faixas, opcoes = {}) {
   let xMax = opcoes.xMax || 0;
   for (const f of vis) for (const s of f.series) for (const p of s.pts) xMax = Math.max(xMax, p[0]);
   const pX = passoBonito((xMax || 5) / 10), xFim = pX * 10;
-  const E = 8, D = 8, T = 6, B = 22, gap = 6;
+  const E = 8, D = 8, T = 6, B = 22, gap = 6;     // margens: esquerda, direita, topo, base, entre faixas
   const altF = (H - T - B - gap * (vis.length - 1)) / vis.length;
   const X = (x) => E + (x / xFim) * (W - E - D);
   const divY = opcoes.divY || 4;
@@ -649,6 +747,8 @@ function desenharOsc(cv, faixas, opcoes = {}) {
   c.font = `12px "Share Tech Mono", ui-monospace, monospace`;
   vis.forEach((f, k) => {
     const y0 = T + k * (altF + gap);
+
+    // Escala vertical automática, com divisões "redondas"
     let lo = Infinity, hi = -Infinity;
     for (const s of f.series) for (const [, y] of s.pts) if (Number.isFinite(y)) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
     for (const v of f.linhasH || []) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
@@ -701,7 +801,11 @@ function desenharOsc(cv, faixas, opcoes = {}) {
   c.fillText(`${fmtBr(xFim, casasDe(pX))} s`, W - D - 6, H - 6);
 }
 
-// ---------------- conexão: Bluetooth LE (Nordic UART) ou USB (Web Serial) ----------------
+/* =====================================================================
+   F. CONEXÃO: Bluetooth LE (Nordic UART) ou USB (Web Serial)
+   Recebe bytes, monta linhas (terminadas em \n) e entrega a aoLinha.
+   Os envios entram numa fila para não se sobrepor.
+   ===================================================================== */
 const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
@@ -714,6 +818,7 @@ class Conexao {
   }
   get conectado() { return !!this.canal; }
 
+  // Acumula o texto e entrega cada linha completa.
   receber(texto) {
     this.buffer += texto;
     let fim;
@@ -722,7 +827,7 @@ class Conexao {
       this.buffer = this.buffer.slice(fim + 1);
       try { this.aoLinha(l); } catch (e) { console.error(e, l); }
     }
-    if (this.buffer.length > 4000) this.buffer = "";
+    if (this.buffer.length > 4000) this.buffer = "";   // descarta lixo sem quebra de linha
   }
 
   async conectarBle() {
@@ -778,6 +883,7 @@ class Conexao {
   desconectar() { this.canal?.fechar(); }
   aoCair() { if (!this.canal) return; this.ultimoTipo = this.canal.tipo; this.canal = null; this.aoEstado("desconectado"); }
 
+  // Coloca o comando na fila de envio. Retorna true se o comando deve aparecer no log de mensagens.
   enviar(cmd, silencioso = false) {
     if (!this.canal) return false;
     const bytes = this.enc.encode(cmd + "\n"), canal = this.canal;
@@ -789,7 +895,9 @@ class Conexao {
   }
 }
 
-// ---------------- direção manual: teclas -> comando "J frente giro" ----------------
+/* =====================================================================
+   G. DIREÇÃO MANUAL: teclas -> comando "J frente giro"
+   ===================================================================== */
 const TECLAS_DIRECAO = {
   ArrowUp: "frente", KeyW: "frente", ArrowDown: "re", KeyS: "re",
   ArrowLeft: "esquerda", KeyA: "esquerda", ArrowRight: "direita", KeyD: "direita",
@@ -804,11 +912,50 @@ function comandoDirecao(pressionadas, vel, curva) {
   if (frente < 0) giro = -giro;
   return `J ${frente * vel + 0} ${Math.round(giro * vel * curva) + 0}`;
 }
-if (typeof module !== "undefined") module.exports = { comandoDirecao, direcaoDaTecla };
 
-// ---------------- abas Dirigir e Andar reto ----------------
-// Dirigir: teclas (tela e teclado) + PID de rotação de cada roda e das duas juntas.
-// Andar reto: só o PID da diferença entre as rodas (comando H e RETO), isolado do resto.
+/* =====================================================================
+   H. ESTADO DA APLICAÇÃO
+   cfg      configuração recebida do firmware (linhas P e C)
+   exp      última telemetria do experimento (linha E)
+   atual    tentativa em andamento (ou null)
+   selecionado  id da tentativa exibida no osciloscópio
+   ===================================================================== */
+const COR_MODO = ["#A7B4C2", "#7AA7FF", "#C792EA", "#E8A87C", "#5FD3E6", "#FFB23F", "#7EE081"];
+
+const cfg = { modo: 6, ref: 0.5, vmax: 150, tol: 10, tmax: 15, maTipo: 0, maRpm: 100, maDuty: 30, maTempo: 0, reto: 1,
+  ganhos: MODOS.map(() => [0, 0, 0]), dutyMax: 50, diam: 65 };
+const exp = { estado: 0, t: 0, modo: 6, ref: 0.5, pos: NaN, erro: NaN, u: 0, cA: NaN, cB: NaN, rA: NaN, rB: NaN };
+const canais = { pos: true, erro: true, vel: true, fantasma: true };   // canais visíveis no osciloscópio
+const arquivo = new Arquivo(armazenamento);
+let atual = null, selecionado = null, logRx = null, timerGanho = null;
+
+const conexao = new Conexao({
+  aoLinha: tratarLinha,
+  aoEstado: (e) => {
+    $("conexao").dataset.estado = e;
+    txt("txtConexao", e === "conectado" ? `${conexao.canal.tipo}: ${conexao.canal.nome}` : e === "procurando" ? "Procurando…" : "Desconectado");
+    for (const id of ["btnBle", "btnUsb"]) $(id).hidden = e === "conectado";
+    $("btnDesconectar").hidden = e !== "conectado";
+    if (e === "desconectado") {
+      rodas.soltarTudo();
+      if (atual) { arquivo.finalizar(atual, 4); atual = null; desenharTudo(); }
+      registrar(conexao.ultimoTipo === "USB"
+        ? "Conexão USB perdida. Pelo cabo o robô não para sozinho: reconecte e aperte Parar, ou desligue o robô."
+        : "Conexão perdida. Pelo Bluetooth o robô para sozinho por segurança.", "erro");
+    }
+    atualizarLeitores();
+  },
+  aoErro: (m) => { aviso(m); registrar(m, "erro"); },
+});
+
+// Envia um comando e o mostra no log de mensagens (silencioso: não mostra).
+function enviar(cmd, silencioso = false) { if (conexao.enviar(cmd, silencioso)) registrar("> " + cmd, "env"); }
+
+/* =====================================================================
+   I. ABAS DIRIGIR E ANDAR RETO
+   Dirigir: teclas (tela e teclado) + PID de rotação de cada roda e das duas juntas.
+   Andar reto: só o PID da diferença entre as rodas (comando H e RETO), isolado do resto.
+   ===================================================================== */
 const rodas = (() => {
   const pressionadas = new Set();
   const hist = [];                 // telemetria T: { t, a, b, spA, spB, dif }
@@ -823,6 +970,7 @@ const rodas = (() => {
     { id: "H", alvo: "#pidReto", titulo: "Ganhos da correção", nota: "Entrada: diferença A − B em mm. Saída: correção de RPM somada a uma roda e subtraída da outra.", cmdK: "H" },
   ];
 
+  // ---------- Montagem dos módulos de PID a partir do <template> ----------
   function montar() {
     const tpl = $("tplPid");
     for (const d of PIDS) {
@@ -855,6 +1003,7 @@ const rodas = (() => {
     }
   }
 
+  // Preenche os campos de ganhos (sem sobrescrever o que o usuário está digitando).
   function preencherGanhos(id, kp, ki, kd) {
     const no = pid[id]; if (!no) return;
     for (const [g, v] of [["kp", kp], ["ki", ki], ["kd", kd]]) {
@@ -865,6 +1014,7 @@ const rodas = (() => {
     }
   }
 
+  // ---------- Recepção das linhas C, P e T ----------
   // Linha C: dutyMax,cruzeiro,kpA,kiA,kdA,kpB,kiB,kdB,kpR,kiR,kdR,diamA,diamB,pprA,pprB,dutyMin,invertido,lados
   function aoC(v) {
     preencherGanhos("A", v[2], v[3], v[4]);
@@ -898,6 +1048,7 @@ const rodas = (() => {
     desenhar();
   }
 
+  // ---------- Gráficos das duas abas (últimos 20 s) ----------
   function desenhar() {
     const t0 = hist.length ? hist[hist.length - 1].t - JANELA_S : 0;
     const pts = (k) => hist.map((h) => [Math.max(0, h.t - t0), h[k]]);
@@ -914,7 +1065,8 @@ const rodas = (() => {
     }
   }
 
-  // ---------- direção ----------
+  // ---------- Direção ----------
+  // Envia "J frente giro" a cada 150 ms enquanto houver tecla pressionada; ao soltar, envia "J 0 0".
   function atualizarDirecao() {
     document.querySelectorAll("#cruz [data-dir]").forEach((b) => b.classList.toggle("ativo", pressionadas.has(b.dataset.dir)));
     if (!pressionadas.size || !conexao.conectado) {
@@ -946,6 +1098,7 @@ const rodas = (() => {
     txt("avisoDir", sim ? "Há um experimento em andamento. Para dirigir, pare o experimento ou espere ele terminar." : "");
   }
 
+  // ---------- Eventos da aba Dirigir e da aba Andar reto ----------
   function ligar() {
     for (const b of document.querySelectorAll("#cruz [data-dir]")) {
       const dir = b.dataset.dir;
@@ -980,45 +1133,10 @@ const rodas = (() => {
   return { iniciar, aoC, aoP, aoT, desenhar, soltarTudo, bloquear };
 })();
 
-// ---------------- telas: Sintonia e Apresentação ----------------
-const COR_MODO = ["#A7B4C2", "#7AA7FF", "#C792EA", "#E8A87C", "#5FD3E6", "#FFB23F", "#7EE081"];
-const $ = (id) => document.getElementById(id);
-const on = (id, ev, fn) => { const e = $(id); if (e) e.addEventListener(ev, fn); };
-const txt = (id, t) => { const e = $(id); if (e) e.textContent = t; };
-const fmt = (v, d = 0) => (Number.isFinite(v) ? fmtBr(v, d) : "—");
-const comSinal = (v, d = 0) => (Number.isFinite(v) ? (v > 0 ? "+" : "") + fmtBr(v, d) : "—");
-const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const armazenamento = (() => { try { return window.localStorage; } catch (e) { return { getItem: () => null, setItem() {} }; } })();
-
-const cfg = { modo: 6, ref: 0.5, vmax: 150, tol: 10, tmax: 15, maTipo: 0, maRpm: 100, maDuty: 30, maTempo: 0, reto: 1,
-  ganhos: MODOS.map(() => [0, 0, 0]), dutyMax: 50, diam: 65 };
-const exp = { estado: 0, t: 0, modo: 6, ref: 0.5, pos: NaN, erro: NaN, u: 0, cA: NaN, cB: NaN, rA: NaN, rB: NaN };
-const canais = { pos: true, erro: true, vel: true, fantasma: true };
-const arquivo = new Arquivo(armazenamento);
-let atual = null, selecionado = null, logRx = null, timerGanho = null;
-
-const conexao = new Conexao({
-  aoLinha: tratarLinha,
-  aoEstado: (e) => {
-    $("conexao").dataset.estado = e;
-    txt("txtConexao", e === "conectado" ? `${conexao.canal.tipo}: ${conexao.canal.nome}` : e === "procurando" ? "Procurando…" : "Desconectado");
-    for (const id of ["btnBle", "btnUsb"]) $(id).hidden = e === "conectado";
-    $("btnDesconectar").hidden = e !== "conectado";
-    if (e === "desconectado") {
-      rodas.soltarTudo();
-      if (atual) { arquivo.finalizar(atual, 4); atual = null; desenharTudo(); }
-      registrar(conexao.ultimoTipo === "USB"
-        ? "Conexão USB perdida. Pelo cabo o robô não para sozinho: reconecte e aperte Parar, ou desligue o robô."
-        : "Conexão perdida. Pelo Bluetooth o robô para sozinho por segurança.", "erro");
-    }
-    atualizarLeitores();
-  },
-  aoErro: (m) => { aviso(m); registrar(m, "erro"); },
-});
-
-function enviar(cmd, silencioso = false) { if (conexao.enviar(cmd, silencioso)) registrar("> " + cmd, "env"); }
-
-// ---------------- Recepção ----------------
+/* =====================================================================
+   J. RECEPÇÃO
+   Roteia cada linha do firmware para o tratamento certo.
+   ===================================================================== */
 function tratarLinha(linha) {
   const r = analisarLinha(linha);
   const v = r.v;
@@ -1054,6 +1172,7 @@ function tratarLinha(linha) {
   }
 }
 
+// Linha E: abre a tentativa quando o experimento começa, acumula amostras e a conclui quando termina.
 function aoTelemetria([t, est, modo, ref, pos, erroMm, u, cA, cB, rA, rB]) {
   const antes = exp.estado;
   Object.assign(exp, { estado: est, t, modo, ref, pos, erro: erroMm, u, cA, cB, rA, rB });
@@ -1076,7 +1195,11 @@ function concluir(run, estado) {
   desenharTudo();
 }
 
-// ---------------- Controles ----------------
+/* =====================================================================
+   K. CONTROLES
+   Habilitação dos botões, preenchimento do teclado de controle e
+   envio de ganhos e referência.
+   ===================================================================== */
 function habilitar() {
   const ok = conexao.conectado, rodando = exp.estado === 1 || exp.estado === 2;
   document.querySelectorAll(".req-con :is(button, input, select), button.req-con").forEach((el) => (el.disabled = !ok));
@@ -1105,6 +1228,7 @@ function preencherControles() {
   desenharHistorico();
 }
 
+// Rótulo, limites e dica (tempo automático) do bloco de malha aberta.
 function atualizarMA() {
   const tipo = Number($("maTipo").value), tempo = Number($("maTempo").value || 0), val = Number($("maValor").value || 0);
   txt("maRotulo", tipo ? "PWM (%)" : "Velocidade (RPM)");
@@ -1117,6 +1241,7 @@ function atualizarMA() {
   txt("maDica", dica);
 }
 
+// Envia GANHO com atraso de 250 ms, para não mandar um comando a cada pixel do slider.
 function enviarGanhos() {
   clearTimeout(timerGanho);
   timerGanho = setTimeout(() => {
@@ -1128,12 +1253,14 @@ function enviarGanhos() {
 }
 
 function definirRef(v) {
-  v = Math.min(1, Math.max(0, v));
+  v = Math.min(1, Math.max(0, v));   // a IHM limita em 1 m (o firmware aceita até 1,5 m)
   cfg.ref = v; $("s-ref").value = v; $("n-ref").value = v.toFixed(2);
   atualizarMA(); enviar(`REF ${v.toFixed(3)}`);
 }
 
-// ---------------- Leitores ----------------
+/* =====================================================================
+   L. LEITORES (mostradores)
+   ===================================================================== */
 function atualizarLeitores() {
   const conectado = conexao.conectado;
   txt("lModo", NOME_MODO[exp.modo] ?? "—");
@@ -1147,13 +1274,17 @@ function atualizarLeitores() {
   habilitar();
 }
 
-// ---------------- Desenho ----------------
+/* =====================================================================
+   M. DESENHO: osciloscópio, histórico e quadro dos 7
+   ===================================================================== */
 let pendente = false;
+// Agrupa vários pedidos de desenho no mesmo quadro de animação.
 function pedirDesenho() { if (!pendente) { pendente = true; requestAnimationFrame(() => { pendente = false; desenharTela(); }); } }
 function desenharTudo() { desenharHistorico(); desenharQuadro(); pedirDesenho(); }
 
 function runExibido() { return arquivo.porId(selecionado) || arquivo.runs[arquivo.runs.length - 1] || null; }
 
+// Monta as 3 faixas (posição, erro, velocidade) da tentativa exibida, com a anterior em segundo plano.
 function faixasDe(run, fantasma) {
   const a = run ? run.amostras : [], f = fantasma ? fantasma.amostras : [];
   const ref = run?.ref ?? cfg.ref, tol = (run?.tol ?? cfg.tol) / 1000, fechada = run && run.modo !== 0;
@@ -1217,7 +1348,9 @@ function desenharQuadro() {
   }).join("");
 }
 
-// ---------------- Mensagens e arquivos ----------------
+/* =====================================================================
+   N. MENSAGENS E ARQUIVOS
+   ===================================================================== */
 function registrar(t, classe) {
   const log = $("log"), d = document.createElement("div");
   if (classe) d.className = classe;
@@ -1226,14 +1359,17 @@ function registrar(t, classe) {
   log.scrollTop = log.scrollHeight;
 }
 function aviso(t) { txt("aviso", t); }
+
+// Baixa um CSV (com BOM, para o Excel reconhecer UTF-8) ou uma imagem "data:".
 function baixar(nome, conteudo) {
-  const url = conteudo.startsWith("data:") ? conteudo : URL.createObjectURL(new Blob(["﻿" + conteudo], { type: "text/csv" }));
+  const url = conteudo.startsWith("data:") ? conteudo : URL.createObjectURL(new Blob(["\uFEFF" + conteudo], { type: "text/csv" }));
   const a = Object.assign(document.createElement("a"), { href: url, download: nome });
   document.body.appendChild(a); a.click(); a.remove();
 }
-const carimbo = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
 
-// ---------------- Modo da tela ----------------
+/* =====================================================================
+   O. TELAS: Sintonia, Apresentação, Dirigir, Andar reto
+   ===================================================================== */
 function definirTela(t) {
   rodas.soltarTudo();
   document.body.dataset.tela = t;
@@ -1242,17 +1378,24 @@ function definirTela(t) {
   desenharQuadro(); pedirDesenho(); rodas.desenhar();
 }
 
-// ---------------- Ligações ----------------
+/* =====================================================================
+   P. LIGAÇÕES E INÍCIO
+   ===================================================================== */
 function ligar() {
+  // ---------- Conexão ----------
   on("btnBle", "click", () => conexao.conectarBle());
   on("btnUsb", "click", () => conexao.conectarUsb());
   on("btnDesconectar", "click", () => conexao.desconectar());
+
+  // ---------- Iniciar, parar e reiniciar ----------
   on("btnIniciar", "click", () => {
     if (cfg.modo === 0 && Number($("maTipo").value) === 1 && !(Number($("maTempo").value) > 0)) return aviso("Com PWM fixo, informe o tempo antes de iniciar.");
     aviso(""); enviar("INICIAR");
   });
   on("btnParar", "click", () => enviar("PARAR"));
   on("btnReiniciar", "click", () => enviar("REINICIAR"));
+
+  // ---------- Controlador, ganhos e referência ----------
   document.querySelectorAll("[data-modo]").forEach((b) => b.addEventListener("click", () => {
     cfg.modo = Number(b.dataset.modo); selecionado = arquivo.doModo(cfg.modo).at(-1)?.id ?? selecionado;
     preencherControles(); pedirDesenho(); enviar(`MODO ${MODOS[cfg.modo]}`);
@@ -1265,6 +1408,8 @@ function ligar() {
   on("s-ref", "change", (e) => definirRef(Number(e.target.value)));
   on("n-ref", "change", (e) => definirRef(Number(String(e.target.value).replace(",", ".")) || 0));
   document.querySelectorAll("[data-ref]").forEach((b) => b.addEventListener("click", () => definirRef(Number(b.dataset.ref))));
+
+  // ---------- Malha aberta e ajustes do experimento ----------
   const enviarMA = () => { atualizarMA(); enviar(`ABERTA ${$("maTipo").value} ${$("maValor").value || 0} ${$("maTempo").value || 0}`); };
   on("maTipo", "change", () => { $("maValor").value = Number($("maTipo").value) ? cfg.maDuty : cfg.maRpm; enviarMA(); });
   on("maValor", "change", enviarMA); on("maTempo", "change", enviarMA);
@@ -1272,11 +1417,15 @@ function ligar() {
   on("tol", "change", (e) => enviar(`TOL ${e.target.value}`));
   on("tmax", "change", (e) => enviar(`TMAX ${e.target.value}`));
   on("btnSalvar", "click", () => enviar("SALVAR"));
+
+  // ---------- Dados, exportação e comando de texto ----------
   on("btnLog", "click", () => enviar("LOG"));
   on("btnCsv", "click", () => arquivo.runs.length && baixar(`dados_experimentos_${carimbo()}.csv`, arquivo.csvDados()));
   on("btnResumo", "click", () => arquivo.runs.length && baixar(`resumo_experimentos_${carimbo()}.csv`, arquivo.csvResumo()));
   on("btnPng", "click", () => baixar(`tela_${carimbo()}.png`, $("osc").toDataURL("image/png")));
   on("formCmd", "submit", (e) => { e.preventDefault(); const c = $("cmd").value.trim(); if (c) { enviar(c); $("cmd").value = ""; } });
+
+  // ---------- Osciloscópio e histórico ----------
   document.querySelectorAll(".canal").forEach((b) => b.addEventListener("click", () => {
     canais[b.dataset.canal] = !canais[b.dataset.canal]; b.setAttribute("aria-pressed", String(canais[b.dataset.canal])); pedirDesenho();
   }));
@@ -1289,6 +1438,8 @@ function ligar() {
     selecionado = run.id;
     desenharTudo();
   });
+
+  // ---------- Atalhos de teclado: Esc para tudo, M troca Sintonia/Apresentação ----------
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && conexao.conectado) { rodas.soltarTudo(true); return enviar("PARAR"); }
     const digitando = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
@@ -1311,7 +1462,6 @@ function iniciar() {
   desenharTudo();
 }
 iniciar();
-
 </script>
 </body>
 </html>

@@ -1,8 +1,7 @@
 /*
  * Robô móvel 2WD - ESP32 - Controle de POSIÇÃO (2ª Avaliação de Robótica)
- * Versão 2: baseada em "controle_motores_pid_ble_esp32", com o módulo de
- * experimentos exigido pela avaliação:
  *
+ * O que o firmware faz:
  *   - Malha aberta: velocidade (RPM ou PWM fixo) durante um tempo definido,
  *     registrando a odometria SEM usá-la para corrigir o movimento.
  *   - Malha fechada de posição com os controladores P, I, D, PI, PD e PID
@@ -17,6 +16,24 @@
  *
  * Bibliotecas: QuickPID (Gerenciador de Bibliotecas) + Preferences (já vem no core).
  * Compatível com o core ESP32 2.x e 3.x.
+ *
+ * ============================ ORGANIZAÇÃO DO ARQUIVO =======================
+ *   1. Bibliotecas
+ *   2. Configuração (todas as constantes ajustáveis)
+ *   3. Tipos e estado global (motores, PIDs, navegação, experimento, registro)
+ *   4. Comunicação (BLE, fila de saída, Serial)
+ *   5. Hardware (PWM, encoder, acionamento dos motores)
+ *   6. Controle (PID de rotação, navegação por distância "G", direção manual)
+ *   7. Experimento (malha aberta e malha fechada de posição)
+ *   8. Registro (LOG enviado em partes)
+ *   9. Armazenamento (flash NVS)
+ *  10. Protocolo (linhas enviadas à IHM e textos de status)
+ *  11. Comandos (parser e execução)
+ *  12. setup() e loop()
+ *
+ * Cadeia de controle (a cada 100 ms, em loop()):
+ *   encoders -> RPM/odometria -> navegação (G) -> experimento (posição)
+ *   -> PID de RPM de cada roda -> PWM
  *
  * ======================= COMANDOS (Serial 115200 ou BLE) ===================
  * --- Experimento (palavras, maiúsculas ou minúsculas) ---
@@ -40,6 +57,7 @@
  *   A D 0..100 | A R rpm | A F hz | A S 1/-1/0 | A W mm | A P ppr | A K kp ki kd
  *   G m | V rpm | R rpm | K kp ki kd | H kp ki kd | L pct | X | M | Z | J f g
  *   I 0/1 | E 0/1 | C | ?
+ *   (o prefixo A ou B escolhe a roda; sem prefixo vale para as duas)
  *
  * ======================= LINHAS ENVIADAS À IHM (CSV + \n) ==================
  *   T,...  telemetria das rodas (igual à v1)
@@ -51,14 +69,17 @@
  *     kpMA,kiMA,kdMA,kpP,kiP,kdP, ... ,kpPID,kiPID,kdPID   (7 x 3 ganhos)
  *   R,modo,ref,posFinal,erroMm,sobreMm,sobrePct,tSubida,tAcomod,tTotal,estado
  *   LH,modo,ref,kp,ki,kd,n,unidadeU,estado,dtMs   cabeçalho do LOG
- *   LD,i,tS,pos,u,cmdA,cmdB,rpmA,rpmB                 uma amostra
- *   LF,n                                              fim do LOG
+ *   LD,i,tS,pos,u,cmdA,cmdB,rpmA,rpmB             uma amostra
+ *   LF,n                                          fim do LOG
  *
  *   estado: 0 PRONTO, 1 EXECUTANDO, 2 FINALIZANDO, 3 CONCLUIDO, 4 PARADO, 5 TEMPO ESGOTADO
  *   modo:   0 MA, 1 P, 2 I, 3 D, 4 PI, 5 PD, 6 PID
  *   unidadeU: 0 = RPM, 1 = % de PWM (malha aberta com PWM fixo)
  */
-
+ 
+// =====================================================================
+// 1. BIBLIOTECAS
+// =====================================================================
 #include <esp_arduino_version.h>
 #include <QuickPID.h>
 #include <Preferences.h>
@@ -67,13 +88,17 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-// ---------------- Configuração PWM ----------------
+// =====================================================================
+// 2. CONFIGURAÇÃO (constantes ajustáveis)
+// =====================================================================
+
+// ---------------- PWM ----------------
 const uint8_t  PWM_RES   = 10;       // resolução em bits (0..1023)
 const uint32_t FREQ_MIN  = 10;       // Hz
 const uint32_t FREQ_MAX  = 40000;    // Hz
 const uint32_t FREQ_INIT = 1000;     // Hz
 
-// ---------------- Configuração encoders ----------------
+// ---------------- Encoders ----------------
 const uint16_t PPR_INIT           = 20;      // furos do disco encoder
 const float    DIAMETRO_INIT_MM   = 65.0f;   // roda comum de motor TT amarelo
 const uint32_t DEBOUNCE_US        = 300;     // ignora pulsos mais próximos que isso
@@ -87,13 +112,12 @@ const float    FILTRO_ALFA        = 0.5f;    // filtro exponencial da RPM
 const float    RPM_TROCA_SENTIDO  = 20.0f;
 const float    RPM_MINIMA         = 6.0f;    // abaixo disso a roda é considerada parada
 
-// ---------------- Configuração PID de RPM (malha interna) ----------------
+// ---------------- PID de RPM (malha interna) ----------------
 const float KP_RPM_INIT = 0.3f;
 const float KI_RPM_INIT = 1.5f;
 const float KD_RPM_INIT = 0.0f;
 const float DUTY_MIN = 10.0f;        // zona morta do motor (%)
 const float DUTY_MAX_INIT = 50.0f;   // limite de segurança (%), ajustável com "L"
-float dutyMax = DUTY_MAX_INIT;
 
 // ---------------- Navegação por distância (comando G, v1) ----------------
 const float    RPM_CRUZEIRO_INIT  = 120.0f;
@@ -104,12 +128,45 @@ const float    ANTECIPACAO_M      = 0.005f;
 const uint32_t FREIO_MS           = 200;
 const uint32_t TIMEOUT_TRAVADO_MS = 2000;
 
-// PID de andar reto: entrada = diferença de distância A-B (mm), saída = correção de RPM
+// ---------------- PID de andar reto ----------------
+// Entrada = diferença de distância A-B (mm), saída = correção de RPM.
 const float KP_RETO_INIT     = 1.0f;
 const float KI_RETO_INIT     = 0.5f;
 const float KD_RETO_INIT     = 0.0f;
 const float CORRECAO_MAX_RPM = 30.0f;
 
+// ---------------- Direção manual (J) e inversão (I) ----------------
+const bool     RODA_A_ESQUERDA     = false;
+const uint32_t TIMEOUT_DIRECAO_MS  = 500;   // sem "J" por esse tempo => para
+
+// ---------------- Experimento de posição ----------------
+const uint16_t LOG_MAX          = 600;   // 60 s a 100 ms
+const uint32_t ASSENTAMENTO_MS  = 500;   // tempo parado dentro da tolerância para concluir
+const uint32_t PARADA_MA_MS     = 300;   // malha aberta: rodas paradas por esse tempo = fim
+const uint32_t FINALIZA_MAX_MS  = 2500;  // malha aberta: espera máxima pela parada
+const float    FILTRO_D         = 0.5f;  // filtro da derivada (0 = sem filtro)
+// Limites da pista: fora deles o experimento é interrompido (proteção, útil no I puro).
+const float    POS_MAX_M        = 1.60f;
+const float    POS_MIN_M        = -0.40f;
+
+// ---------------- BLE (Nordic UART Service) ----------------
+#define BLE_NOME          "Carrinho-ESP32"
+#define NUS_SERVICE_UUID  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define NUS_RX_UUID       "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define NUS_TX_UUID       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+const uint32_t INTERVALO_TELEMETRIA_MS = 200;
+const uint32_t BLE_INTERVALO_PACOTE_MS = 6;
+const size_t   BLE_PACOTE              = 20;     // bytes por notificação
+const size_t   BLE_FILA_TAM            = 4096;   // fila circular de saída
+const size_t   CMD_TAM                 = 64;     // tamanho máximo de um comando
+const bool     PARAR_AO_DESCONECTAR    = true;
+
+// =====================================================================
+// 3. TIPOS E ESTADO GLOBAL
+// =====================================================================
+
+// ---------------- Motor (uma roda) ----------------
 struct Motor {
   char     nome;
   uint8_t  pinPWM;   // ENA / ENB (PWMA / PWMB no TB6612)
@@ -149,6 +206,9 @@ Motor motores[2] = {
   { 'B', 33, 32, 13, 34, 2,    FREQ_INIT, 0,   1,      PPR_INIT, DIAMETRO_INIT_MM }
 };
 
+portMUX_TYPE muxEnc = portMUX_INITIALIZER_UNLOCKED;   // protege os contadores da ISR
+
+// ---------------- PIDs de rotação e de andar reto ----------------
 QuickPID pidA(&motores[0].pidEntrada, &motores[0].pidSaida, &motores[0].pidSetpoint);
 QuickPID pidB(&motores[1].pidEntrada, &motores[1].pidSaida, &motores[1].pidSetpoint);
 QuickPID *pids[2] = { &pidA, &pidB };
@@ -157,6 +217,9 @@ float retoEntrada = 0, retoSaida = 0, retoSetpoint = 0;
 float kpReto = KP_RETO_INIT, kiReto = KI_RETO_INIT, kdReto = KD_RETO_INIT;
 QuickPID pidReto(&retoEntrada, &retoSaida, &retoSetpoint);
 
+float dutyMax = DUTY_MAX_INIT;   // limite de duty em uso (comando L)
+
+// ---------------- Navegação por distância (comando G) ----------------
 enum EstadoNav { NAV_PARADO, NAV_ANDANDO, NAV_FREANDO };
 struct Navegacao {
   EstadoNav estado = NAV_PARADO;
@@ -171,20 +234,14 @@ struct Navegacao {
   bool      abortado = false;
 } nav;
 
-portMUX_TYPE muxEnc = portMUX_INITIALIZER_UNLOCKED;
-bool monitorAtivo = true;
+// ---------------- Direção manual e modos de exibição ----------------
+bool monitorAtivo  = true;
+bool invertido     = false;   // comando I: traseira vira a frente
+bool ladosTrocados = false;   // comando E: esquerda e direita trocadas
+bool dirigindo     = false;
+uint32_t tUltimoJ  = 0;
 
-// ---------------- Direção manual (J) e inversão (I) ----------------
-const bool     RODA_A_ESQUERDA     = false;
-const uint32_t TIMEOUT_DIRECAO_MS  = 500;
-bool     invertido     = false;
-bool     ladosTrocados = false;
-bool     dirigindo     = false;
-uint32_t tUltimoJ      = 0;
-
-// =====================================================================
-// ---------------- EXPERIMENTO DE CONTROLE DE POSIÇÃO -----------------
-// =====================================================================
+// ---------------- Experimento: modos e estados ----------------
 enum ModoCtrl { MODO_MA, MODO_P, MODO_I, MODO_D, MODO_PI, MODO_PD, MODO_PID, N_MODOS };
 const char *NOMES_MODO[N_MODOS] = { "MA", "P", "I", "D", "PI", "PD", "PID" };
 // bit0 = P, bit1 = I, bit2 = D
@@ -205,16 +262,9 @@ const float GANHOS_PADRAO[N_MODOS][3] = {
   { 3.5f, 0.3f, 1.2f },   // PID
 };
 
-const uint16_t LOG_MAX          = 600;   // 60 s a 100 ms
-const uint32_t ASSENTAMENTO_MS  = 500;   // tempo parado dentro da tolerância para concluir
-const uint32_t PARADA_MA_MS     = 300;   // malha aberta: rodas paradas por esse tempo = fim
-const uint32_t FINALIZA_MAX_MS  = 2500;  // malha aberta: espera máxima pela parada
-const float    FILTRO_D         = 0.5f;  // filtro da derivada (0 = sem filtro)
-// Limites da pista: fora deles o experimento é interrompido (proteção, útil no I puro).
-const float    POS_MAX_M        = 1.60f;
-const float    POS_MIN_M        = -0.40f;
-
+// ---------------- Experimento: parâmetros e execução ----------------
 struct Experimento {
+  // parâmetros (ajustados pelos comandos MODO, GANHO, REF, VMAX, TOL, TMAX, ABERTA, RETO)
   uint8_t   modo = MODO_PID;
   float     ganhos[N_MODOS][3];
   float     refM = 0.50f;
@@ -239,6 +289,7 @@ struct Experimento {
   float     pos = 0, erro = 0;
 } ex;
 
+// ---------------- Registro do experimento (RAM) ----------------
 struct Amostra { uint32_t t; float pos, u, cmdA, cmdB, rpmA, rpmB; };
 Amostra logBuf[LOG_MAX];
 uint16_t logN = 0;
@@ -253,26 +304,21 @@ int32_t dumpIdx = -1;
 bool telSerial = false;     // telemetria também pela Serial (IHM via USB)
 Preferences prefs;
 
-// ---------------- BLE (Nordic UART Service) ----------------
-#define BLE_NOME          "Carrinho-ESP32"
-#define NUS_SERVICE_UUID  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define NUS_RX_UUID       "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define NUS_TX_UUID       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+// ---------------- Declarações antecipadas ----------------
+void cancelarExperimento();
+void enviarParametros();
 
-const uint32_t INTERVALO_TELEMETRIA_MS = 200;
-const uint32_t BLE_INTERVALO_PACOTE_MS = 6;
-const size_t   BLE_PACOTE              = 20;
-const size_t   BLE_FILA_TAM            = 4096;
-const size_t   CMD_TAM                 = 64;
-const bool     PARAR_AO_DESCONECTAR    = true;
-
+// =====================================================================
+// 4. COMUNICAÇÃO (BLE, fila de saída, Serial)
+// =====================================================================
 BLEServer         *bleServidor = nullptr;
 BLECharacteristic *bleTx       = nullptr;
 volatile bool bleConectado     = false;
 volatile bool bleDesconectou   = false;
-QueueHandle_t filaComandos;
-bool comandoViaBle = false;
+QueueHandle_t filaComandos;      // comandos recebidos pelo BLE (ISR do BLE -> loop)
+bool comandoViaBle = false;      // true enquanto processa um comando vindo do BLE
 
+// Fila circular de bytes a enviar pelo BLE (enviada em pacotes de 20 bytes)
 uint8_t  bleFila[BLE_FILA_TAM];
 size_t   bleIni = 0, bleFim = 0;
 uint32_t bleUltimoEnvio = 0;
@@ -291,6 +337,7 @@ void bleFilaTexto(const char *txt) {
   for (size_t i = 0; i < n; i++) bleFilaByte((uint8_t)txt[i]);
 }
 
+// Envia um pacote da fila (chamada a cada volta do loop).
 void bleEnviarPendentes() {
   if (!bleConectado) { bleIni = bleFim = 0; return; }
   if (bleIni == bleFim || millis() - bleUltimoEnvio < BLE_INTERVALO_PACOTE_MS) return;
@@ -305,6 +352,7 @@ void bleEnviarPendentes() {
   bleUltimoEnvio = millis();
 }
 
+// Saída de texto para Serial e BLE ao mesmo tempo (usada nas mensagens e respostas).
 class SaidaDupla : public Print {
 public:
   size_t write(uint8_t c) override {
@@ -334,6 +382,7 @@ class ServidorCB : public BLEServerCallbacks {
   }
 };
 
+// Monta as linhas de comando recebidas pelo BLE e as coloca na fila.
 class RxCB : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *c) override {
     static char linha[CMD_TAM];
@@ -375,7 +424,11 @@ void bleIniciar() {
   BLEDevice::startAdvertising();
 }
 
-// ---------------- Camada PWM (2.x / 3.x) ----------------
+// =====================================================================
+// 5. HARDWARE (PWM, encoder, acionamento dos motores)
+// =====================================================================
+
+// ---------------- PWM (camada que isola o core 2.x do 3.x) ----------------
 void pwmIniciar(Motor &m) {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
   ledcAttachChannel(m.pinPWM, m.freq, PWM_RES, m.canal);
@@ -401,7 +454,7 @@ bool pwmMudarFrequencia(Motor &m, uint32_t freq) {
 #endif
 }
 
-// ---------------- Encoder ----------------
+// ---------------- Encoder: interrupção e leitura ----------------
 void IRAM_ATTR isrEncoder(void *arg) {
   Motor *m = (Motor *)arg;
   uint32_t agora = micros();
@@ -424,6 +477,7 @@ float circunferencia(Motor &m) {
   return PI * m.diametroMm / 1000.0f;
 }
 
+// Atualiza RPM (filtrada), velocidade e odometria. Chamada a cada 100 ms.
 void calcularVelocidade(Motor &m) {
   portENTER_CRITICAL(&muxEnc);
   uint32_t pa = m.pulsosAbs;
@@ -495,6 +549,7 @@ void aplicarFreio(Motor &m) {
   pwmEscrever(m, (1UL << PWM_RES) - 1);
 }
 
+// Para o motor e desliga o PID de rotação dele.
 void soltarMotor(Motor &m) {
   m.pidAtivo = false;
   m.pidSetpoint = 0;
@@ -504,7 +559,11 @@ void soltarMotor(Motor &m) {
   aplicarDuty(m);
 }
 
-// ---------------- PID de rotação ----------------
+// =====================================================================
+// 6. CONTROLE (PID de rotação, navegação "G", direção manual)
+// =====================================================================
+
+// ---------------- PID de rotação (malha interna) ----------------
 void pidReiniciar(QuickPID &pid, float &saida) {
   saida = 0;
   pid.SetMode(QuickPID::Control::manual);
@@ -528,6 +587,7 @@ void controlarRPM(uint8_t i) {
   aplicarDuty(m);
 }
 
+// Define a RPM desejada da roda (sinal = sentido). Liga o PID se estiver desligado.
 void definirRpm(uint8_t i, float rpm) {
   Motor &m = motores[i];
   m.sentido = (rpm > 0) ? 1 : (rpm < 0 ? -1 : 0);
@@ -539,13 +599,11 @@ void definirRpm(uint8_t i, float rpm) {
   m.pidSetpoint = fabsf(rpm);
 }
 
-// ---------------- Navegação por distância (G) ----------------
+// ---------------- Navegação por distância (comando G) ----------------
 void distanciasNav(float &dA, float &dB) {
   dA = nav.sentido * (float)(lerPulsos(motores[0]) - nav.inicio[0]) / motores[0].ppr * circunferencia(motores[0]);
   dB = nav.sentido * (float)(lerPulsos(motores[1]) - nav.inicio[1]) / motores[1].ppr * circunferencia(motores[1]);
 }
-
-void cancelarExperimento();
 
 void iniciarNavegacao(float distM) {
   cancelarExperimento();
@@ -600,6 +658,7 @@ void cancelarManual() {
   cancelarExperimento();
 }
 
+// Rampa de aceleração, desaceleração perto do alvo e correção de andar reto.
 void atualizarNavegacao() {
   if (nav.estado != NAV_ANDANDO) return;
 
@@ -633,6 +692,7 @@ void atualizarNavegacao() {
   motores[1].pidSetpoint = max(0.0f, nav.rpmBase - retoSaida);
 }
 
+// Detecta a chegada (começa a frear) e conclui o trajeto depois do freio.
 void verificarChegada() {
   if (nav.estado == NAV_ANDANDO) {
     float dA, dB;
@@ -661,8 +721,30 @@ void verificarChegada() {
   }
 }
 
+// ---------------- Parada geral e direção manual (J) ----------------
+void pararTudo() {
+  cancelarNavegacao();
+  cancelarExperimento();
+  dirigindo = false;
+  for (Motor &m : motores) soltarMotor(m);
+  Saida.println(F("PARADO."));
+}
+
+// frente e giro em RPM; giro > 0 vira à direita.
+void dirigir(float frente, float giro) {
+  cancelarManual();
+  if (invertido) frente = -frente;
+  float esq = constrain(frente + giro, -300.0f, 300.0f);
+  float dir = constrain(frente - giro, -300.0f, 300.0f);
+  bool aEsquerda = RODA_A_ESQUERDA != ladosTrocados;
+  definirRpm(0, aEsquerda ? esq : dir);
+  definirRpm(1, aEsquerda ? dir : esq);
+  dirigindo = (frente != 0 || giro != 0);
+  tUltimoJ  = millis();
+}
+
 // =====================================================================
-// ---------------- Experimento: malha aberta e malha fechada ----------
+// 7. EXPERIMENTO (malha aberta e malha fechada de posição)
 // =====================================================================
 bool experimentoAtivo() {
   return ex.estado == EXP_EXECUTANDO || ex.estado == EXP_FINALIZANDO;
@@ -676,6 +758,7 @@ float posicaoAtual() {
   return sF * (dA + dB) / 2.0f;
 }
 
+// Guarda uma amostra no registro (RAM) a cada 100 ms.
 void registrarAmostra() {
   if (logN >= LOG_MAX) return;
   Amostra &a = logBuf[logN++];
@@ -688,8 +771,8 @@ void registrarAmostra() {
   a.rpmB = rpmComSinal(motores[1]);
 }
 
+// Calcula as métricas a partir do registro e envia o resultado (texto + linha R).
 void enviarResultado(EstadoExp final) {
-  // Métricas calculadas a partir do registro
   float ref = logRef;
   float posFinal = posicaoAtual();
   float maxPos = posFinal;
@@ -728,8 +811,6 @@ void encerrarExperimento(EstadoExp final) {
 void cancelarExperimento() {
   if (experimentoAtivo()) encerrarExperimento(EXP_PARADO);
 }
-
-void enviarParametros();
 
 bool iniciarExperimento() {
   if (experimentoAtivo()) { Saida.println(F("Experimento ja em execucao.")); return false; }
@@ -780,7 +861,9 @@ void comandarRodas(float rpmA, float rpmB) {
   definirRpm(1, sF * rpmB);
 }
 
-// Chamada a cada 100 ms.
+// Malha externa. Chamada a cada 100 ms. Etapas:
+//   1) limites da pista  2) finalizando (MA)  3) malha aberta
+//   4) malha fechada: P/I/D + anti-windup + andar reto  5) critério de término
 void atualizarExperimento() {
   if (!experimentoAtivo()) return;
   const float dt = INTERVALO_CALC_MS / 1000.0f;
@@ -789,6 +872,7 @@ void atualizarExperimento() {
   ex.pos  = posicaoAtual();
   ex.erro = ex.refM - ex.pos;
 
+  // ---------- 1) Proteção: limites da pista ----------
   if (ex.estado == EXP_EXECUTANDO && (ex.pos > POS_MAX_M || ex.pos < POS_MIN_M)) {
     Saida.printf("Limite de pista atingido (%.2f m). Experimento interrompido.\n", ex.pos);
     registrarAmostra();
@@ -796,7 +880,7 @@ void atualizarExperimento() {
     return;
   }
 
-  // ---------- Finalizando (malha aberta: freio e espera a parada) ----------
+  // ---------- 2) Finalizando (malha aberta: freio e espera a parada) ----------
   if (ex.estado == EXP_FINALIZANDO) {
     if (ex.freando && agora - ex.tFinalizar >= FREIO_MS) {
       ex.freando = false;
@@ -811,7 +895,7 @@ void atualizarExperimento() {
     return;
   }
 
-  // ---------- Malha aberta ----------
+  // ---------- 3) Malha aberta ----------
   if (ex.modo == MODO_MA) {
     if (t < ex.tFimMA) {
       if (ex.maTipo == 0) {
@@ -842,12 +926,13 @@ void atualizarExperimento() {
     return;
   }
 
-  // ---------- Malha fechada: P, I, D, PI, PD, PID ----------
+  // ---------- 4) Malha fechada: P, I, D, PI, PD, PID ----------
   uint8_t termos = TERMOS[ex.modo];
   float kp = ex.ganhos[ex.modo][0], ki = ex.ganhos[ex.modo][1], kd = ex.ganhos[ex.modo][2];
   float eCm = ex.erro * 100.0f;
   bool dentro = fabsf(ex.erro * 1000.0f) <= ex.tolMm;
 
+  // Derivada do erro, com filtro
   float de = (eCm - ex.eAnt) / dt;
   ex.dFilt = FILTRO_D * ex.dFilt + (1.0f - FILTRO_D) * de;
   ex.eAnt = eCm;
@@ -893,7 +978,7 @@ void atualizarExperimento() {
 
   registrarAmostra();
 
-  // Término: dentro da tolerância e rodas paradas por ASSENTAMENTO_MS
+  // ---------- 5) Término: dentro da tolerância e rodas paradas por ASSENTAMENTO_MS ----------
   bool parado = motores[0].rpm < 1 && motores[1].rpm < 1;
   if (dentro && parado) {
     if (!ex.tCond) ex.tCond = agora;
@@ -918,7 +1003,9 @@ void reiniciarExperimento() {
   Saida.println(F("Experimento reiniciado: odometria zerada, registro apagado."));
 }
 
-// ---------------- LOG: envio em partes ----------------
+// =====================================================================
+// 8. REGISTRO (LOG enviado em partes)
+// =====================================================================
 void iniciarDump(bool viaBle) {
   if (logN == 0) { Saida.println(F("LOG vazio: execute um experimento.")); return; }
   if (experimentoAtivo()) { Saida.println(F("Aguarde o fim do experimento.")); return; }
@@ -928,6 +1015,7 @@ void iniciarDump(bool viaBle) {
   dumpAtivo = true;
 }
 
+// Envia até 3 linhas por volta do loop: LH (cabeçalho), LD (amostras) e LF (fim).
 void processarDump() {
   if (!dumpAtivo) return;
   if (dumpBle && !bleConectado) { dumpAtivo = false; return; }
@@ -954,12 +1042,15 @@ void processarDump() {
   }
 }
 
-// ---------------- Flash (NVS) ----------------
+// =====================================================================
+// 9. ARMAZENAMENTO (flash NVS, namespace "robo")
+// =====================================================================
 void aplicarGanhosRpm() {
   for (uint8_t i = 0; i < 2; i++) pids[i]->SetTunings(motores[i].kp, motores[i].ki, motores[i].kd);
   pidReto.SetTunings(kpReto, kiReto, kdReto);
 }
 
+// Valores de fábrica (não grava na flash; use SALVAR).
 void carregarPadroes() {
   memcpy(ex.ganhos, GANHOS_PADRAO, sizeof(ex.ganhos));
   ex.modo = MODO_PID; ex.refM = 0.5f; ex.vmaxRpm = 150; ex.tolMm = 10; ex.tmaxS = 15;
@@ -1000,6 +1091,7 @@ void salvarFlash() {
   Saida.println(F("Parametros gravados na flash."));
 }
 
+// Começa pelos padrões e sobrescreve com o que estiver gravado.
 void carregarFlash() {
   carregarPadroes();
   prefs.begin("robo", true);
@@ -1035,32 +1127,14 @@ void carregarFlash() {
   prefs.end();
 }
 
-// ---------------- Parada geral ----------------
-void pararTudo() {
-  cancelarNavegacao();
-  cancelarExperimento();
-  dirigindo = false;
-  for (Motor &m : motores) soltarMotor(m);
-  Saida.println(F("PARADO."));
-}
-
-void dirigir(float frente, float giro) {
-  cancelarManual();
-  if (invertido) frente = -frente;
-  float esq = constrain(frente + giro, -300.0f, 300.0f);
-  float dir = constrain(frente - giro, -300.0f, 300.0f);
-  bool aEsquerda = RODA_A_ESQUERDA != ladosTrocados;
-  definirRpm(0, aEsquerda ? esq : dir);
-  definirRpm(1, aEsquerda ? dir : esq);
-  dirigindo = (frente != 0 || giro != 0);
-  tUltimoJ  = millis();
-}
-
-// ---------------- Saída serial ----------------
+// =====================================================================
+// 10. PROTOCOLO (linhas para a IHM e textos de status)
+// =====================================================================
 const char *nomeSentido(int8_t s) {
   return s == 1 ? "frente" : (s == -1 ? "re" : "parado");
 }
 
+// ---------------- Textos para o monitor serial ----------------
 void mostrarStatus() {
   Saida.println(F("--------------------------- STATUS ---------------------------"));
   for (Motor &m : motores) {
@@ -1106,7 +1180,8 @@ void mostrarMonitor() {
   Serial.println();
 }
 
-// ---------------- Linhas para a IHM ----------------
+// ---------------- Linhas CSV para a IHM ----------------
+// Linha C: configuração das rodas.
 void enviarConfig() {
   Motor &a = motores[0];
   Motor &b = motores[1];
@@ -1115,6 +1190,7 @@ void enviarConfig() {
                kpReto, kiReto, kdReto, a.diametroMm, b.diametroMm, a.ppr, b.ppr, DUTY_MIN, invertido ? 1 : 0, ladosTrocados ? 1 : 0);
 }
 
+// Linha P: parâmetros do experimento e os 7 x 3 ganhos.
 void enviarParametros() {
   char l[400];
   int n = snprintf(l, sizeof(l), "P,%u,%.3f,%.0f,%.0f,%.0f,%u,%.0f,%.0f,%.2f,%d,%d",
@@ -1127,6 +1203,7 @@ void enviarParametros() {
   Saida.print(l);
 }
 
+// Linha T: telemetria das rodas (a cada 200 ms).
 void enviarTelemetria() {
   Motor &a = motores[0];
   Motor &b = motores[1];
@@ -1141,6 +1218,7 @@ void enviarTelemetria() {
   enviarDados(linha);
 }
 
+// Linha E: telemetria do experimento (100 ms rodando, 200 ms parado).
 void enviarTelemetriaExp() {
   char linha[160];
   float t = experimentoAtivo() ? (millis() - ex.t0) / 1000.0f
@@ -1152,12 +1230,19 @@ void enviarTelemetriaExp() {
   enviarDados(linha);
 }
 
+// Resposta padrão depois de um comando que muda parâmetros:
+// IHM (BLE ou TEL 1) recebe as linhas C e P; no monitor serial, o texto de status.
 void concluirComando() {
   if (comandoViaBle || telSerial) { enviarConfig(); enviarParametros(); }
   else mostrarStatus();
 }
 
-// ---------------- Comandos por palavra (experimento) ----------------
+// =====================================================================
+// 11. COMANDOS (parser e execução)
+// =====================================================================
+
+// Lê até "max" números de uma string. Retorna a quantidade lida,
+// ou -1 se sobrar texto que não é número.
 int lerNumeros(const char *p, float *v, int max) {
   int nv = 0;
   while (nv < max) {
@@ -1171,6 +1256,7 @@ int lerNumeros(const char *p, float *v, int max) {
   return (*p == '\0') ? nv : -1;
 }
 
+// ---------------- Comandos por palavra (experimento) ----------------
 // Retorna true se a linha era um comando por palavra.
 bool processarPalavra(const String &linha) {
   int esp = linha.indexOf(' ');
@@ -1256,7 +1342,9 @@ bool processarPalavra(const String &linha) {
   return true;
 }
 
-// ---------------- Comandos ----------------
+// ---------------- Roteador de comandos ----------------
+// Palavra com 3+ letras no início => comando do experimento (processarPalavra).
+// 1 letra => comando geral (v1). 2 letras (A/B + comando) => comando de uma roda.
 void processarComando(String linha) {
   linha.trim();
   linha.toUpperCase();
@@ -1271,6 +1359,7 @@ void processarComando(String linha) {
     return;
   }
 
+  // Separa as letras (até 2) dos números (até 3)
   const char *p = linha.c_str();
   char letras[3] = {0};
   uint8_t nl = 0;
@@ -1293,6 +1382,7 @@ void processarComando(String linha) {
   while (*p == ' ') p++;
   if (*p != '\0' || nl == 0) { Saida.println(F("Formato invalido. Digite ? para ajuda.")); return; }
 
+  // ---------- Comandos gerais de uma letra (v1) ----------
   if (nl == 1) {
     switch (letras[0]) {
       case 'M':
@@ -1373,6 +1463,7 @@ void processarComando(String linha) {
     return;
   }
 
+  // ---------- Comandos de uma roda (A ou B + comando) ----------
   uint8_t i;
   if (letras[0] == 'A')      i = 0;
   else if (letras[0] == 'B') i = 1;
@@ -1446,7 +1537,9 @@ void processarComando(String linha) {
   concluirComando();
 }
 
-// ---------------- Setup / Loop ----------------
+// =====================================================================
+// 12. SETUP E LOOP
+// =====================================================================
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(20);
@@ -1454,6 +1547,7 @@ void setup() {
 
   carregarFlash();
 
+  // Pinos, PWM, encoders e PIDs de rotação de cada roda
   for (uint8_t i = 0; i < 2; i++) {
     Motor &m = motores[i];
     m.sentidoEnc = 1;
@@ -1487,6 +1581,7 @@ void loop() {
   static uint32_t tCalc = 0, tPrint = 0;
   uint32_t agora = millis();
 
+  // ---------- Ciclo de controle (100 ms) ----------
   if (agora - tCalc >= INTERVALO_CALC_MS) {
     tCalc = agora;
     for (Motor &m : motores) calcularVelocidade(m);
@@ -1503,11 +1598,13 @@ void loop() {
 
   verificarChegada();
 
+  // ---------- Monitor contínuo na Serial ----------
   if (monitorAtivo && agora - tPrint >= INTERVALO_PRINT_MS) {
     tPrint = agora;
     mostrarMonitor();
   }
 
+  // ---------- Comandos (Serial e BLE) ----------
   if (Serial.available()) {
     comandoViaBle = false;
     processarComando(Serial.readStringUntil('\n'));
@@ -1520,6 +1617,7 @@ void loop() {
     comandoViaBle = false;
   }
 
+  // ---------- Telemetria (T e, parado, E) a cada 200 ms ----------
   static uint32_t tTelemetria = 0, tDesconexao = 0;
   if ((bleConectado || telSerial) && agora - tTelemetria >= INTERVALO_TELEMETRIA_MS) {
     tTelemetria = agora;
@@ -1527,6 +1625,7 @@ void loop() {
     if (ex.estado == EXP_PRONTO) enviarTelemetriaExp();
   }
 
+  // ---------- Desconexão BLE: para o robô e volta a anunciar ----------
   if (bleDesconectou) {
     bleDesconectou = false;
     tDesconexao = agora;
@@ -1538,11 +1637,13 @@ void loop() {
     BLEDevice::startAdvertising();
   }
 
+  // ---------- Segurança da direção manual ----------
   if (dirigindo && millis() - tUltimoJ > TIMEOUT_DIRECAO_MS) {
     dirigir(0, 0);
     Saida.println(F("Direcao: sem comando recente, parando."));
   }
 
+  // ---------- Envio em partes (LOG e fila do BLE) ----------
   processarDump();
   bleEnviarPendentes();
 }
