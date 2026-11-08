@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IHM Robô · Instrumento</title>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: dark;
+  --chassi: #26303B; --painel: #323E4B; --painel-2: #3A4757; --vinco: #1C242D;
+  --serigrafia: #D9E1E8; --serigrafia-2: #9DB0C0;
+  --tela: #0C1E2B;
+  --pos: #FFB23F; --erro: #5FD3E6; --roda-a: #7AA7FF; --roda-b: #FF7EB0;
+  --iniciar: #3DBE7A; --parar: #E5484D; --ativo: #FFB23F;
+  --ui: "Saira Semi Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --display: "Share Tech Mono", ui-monospace, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--chassi); color: var(--serigrafia); font: 16px/1.4 var(--ui);
+  background-image: linear-gradient(180deg, #2B3643 0, var(--chassi) 220px);
+  min-height: 100vh;
+}
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: .01em; }
+h1 { font-size: 1.375rem; } h2 { font-size: 1.0625rem; } h3 { font-size: .9375rem; font-weight: 500; color: var(--serigrafia-2); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ativo); outline-offset: 2px; }
+.nota { color: var(--serigrafia-2); font-size: .8125rem; font-weight: 400; margin: 0; }
+
+/* Teclas de borracha */
+.tecla, .modos button, .atalhos button, .canal, .seletor-tela button {
+  cursor: pointer; border: 1px solid var(--vinco); border-radius: 6px; min-height: 40px; padding: 6px 14px;
+  background: linear-gradient(180deg, #4A5869, #3A4757); color: var(--serigrafia); font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 2px 0 var(--vinco);
+}
+.tecla:active:not(:disabled), .modos button:active:not(:disabled) { transform: translateY(1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 1px 0 var(--vinco); }
+button:disabled, input:disabled, select:disabled { opacity: .45; cursor: not-allowed; }
+kbd { font: .75rem var(--display); opacity: .75; margin-left: 6px; }
+
+/* Topo */
+.topo { display: flex; align-items: center; gap: 12px 24px; flex-wrap: wrap; padding: 14px 20px; max-width: 1480px; margin: 0 auto; }
+.marca p { margin: 0; color: var(--serigrafia-2); font-size: .875rem; }
+.conexao { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-wrap: wrap; color: var(--serigrafia-2); }
+.led { width: 10px; height: 10px; border-radius: 50%; background: #55606C; box-shadow: inset 0 1px 1px rgba(0,0,0,.5); }
+.conexao[data-estado="conectado"] .led { background: var(--iniciar); box-shadow: 0 0 8px var(--iniciar); }
+.conexao[data-estado="procurando"] .led { background: var(--ativo); }
+.seletor-tela { display: flex; background: var(--vinco); border-radius: 8px; padding: 3px; gap: 3px; }
+.seletor-tela button { min-height: 34px; box-shadow: none; background: transparent; border-color: transparent; color: var(--serigrafia-2); }
+.seletor-tela button[aria-checked="true"] { background: var(--painel-2); color: var(--serigrafia); }
+.aviso { max-width: 1480px; margin: 0 auto 10px; padding: 0 20px; color: #FF9A9D; }
+.aviso:empty { display: none; }
+
+/* Bancada: grade dos módulos */
+.bancada { max-width: 1480px; margin: 0 auto; padding: 0 20px 24px; display: grid; gap: 14px; }
+.modulo { background: var(--painel); border: 1px solid var(--vinco); border-radius: 12px; padding: 14px 16px; min-width: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
+body[data-tela="sintonia"] .bancada {
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-areas: "tela leitores" "teclado historico" "mensagens historico";
+}
+body[data-tela="sintonia"] .quadro { display: none; }
+body[data-tela="apresentacao"] .bancada {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-areas: "leitores leitores" "tela teclado" "quadro quadro";
+}
+body[data-tela="apresentacao"] :is(.historico, .mensagens, .ajustes) { display: none; }
+.leitores { grid-area: leitores; } .tela { grid-area: tela; } .teclado { grid-area: teclado; }
+.historico { grid-area: historico; } .quadro { grid-area: quadro; } .mensagens { grid-area: mensagens; }
+
+/* Leitores */
+.ident { display: flex; align-items: center; gap: 12px; }
+.led-estado { width: 16px; height: 16px; border-radius: 50%; background: #55606C; flex: none; }
+.led-estado[data-e="1"], .led-estado[data-e="2"] { background: var(--ativo); box-shadow: 0 0 10px var(--ativo); }
+.led-estado[data-e="3"] { background: var(--iniciar); box-shadow: 0 0 10px var(--iniciar); }
+.led-estado[data-e="4"], .led-estado[data-e="5"] { background: var(--parar); box-shadow: 0 0 10px var(--parar); }
+.controlador { font-size: 1.75rem; font-weight: 700; line-height: 1; }
+.estado { color: var(--serigrafia-2); }
+.relogio { margin-left: auto; font-family: var(--display); color: var(--serigrafia-2); font-size: 1.125rem; }
+.mostradores { margin: 14px 0 0; display: grid; gap: 8px; }
+.m { background: var(--tela); border-radius: 6px; padding: 8px 12px; border-left: 4px solid var(--c); }
+.m dt { color: var(--serigrafia-2); font-size: .8125rem; }
+.m dd { margin: 0; font-family: var(--display); font-size: 2rem; line-height: 1.1; color: var(--c); }
+.m dd small { font-size: .875rem; margin-left: 6px; color: var(--serigrafia-2); font-family: var(--ui); }
+.m p { margin: 0; font-size: .8125rem; color: var(--serigrafia-2); }
+.m-ref { --c: var(--serigrafia); } .m-pos { --c: var(--pos); } .m-erro { --c: var(--erro); } .m-a { --c: var(--roda-a); } .m-b { --c: var(--roda-b); }
+body[data-tela="sintonia"] .mostradores { grid-template-columns: 1fr 1fr; }
+body[data-tela="sintonia"] .m-ref, body[data-tela="sintonia"] .m-pos, body[data-tela="sintonia"] .m-erro { grid-column: 1 / -1; }
+body[data-tela="apresentacao"] .leitores { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; }
+body[data-tela="apresentacao"] .mostradores { margin: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+body[data-tela="apresentacao"] .m dd { font-size: clamp(2rem, 3.6vw, 3.25rem); }
+body[data-tela="apresentacao"] .controlador { font-size: clamp(2.25rem, 4vw, 3.5rem); }
+body[data-tela="apresentacao"] .ident { flex-wrap: wrap; }
+body[data-tela="apresentacao"] .relogio { margin-left: 0; width: 100%; padding-left: 28px; }
+
+/* Tela */
+.tela-topo, .tela-base, .msg-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tela-base { margin-top: 10px; }
+.tela-base p { margin: 0; color: var(--serigrafia-2); font-size: .875rem; }
+.canais { display: flex; gap: 6px; flex-wrap: wrap; }
+.canal { min-height: 32px; padding: 2px 10px 2px 8px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
+.canal::before { content: ""; width: 14px; height: 3px; border-radius: 2px; background: var(--c); }
+.canal[aria-pressed="false"] { opacity: .5; }
+.canal[aria-pressed="false"]::before { background: transparent; outline: 1px solid var(--c); }
+.c-pos { --c: var(--pos); } .c-erro { --c: var(--erro); } .c-vel { --c: linear-gradient(90deg, var(--roda-a) 50%, var(--roda-b) 50%); }
+.c-vel::before { background: var(--c); }
+.c-fant { --c: rgba(255,178,63,.4); }
+.moldura { margin-top: 10px; background: #14171C; border-radius: 14px; padding: 10px; box-shadow: inset 0 2px 8px rgba(0,0,0,.6); }
+.moldura canvas { display: block; width: 100%; height: 470px; border-radius: 4px; }
+body[data-tela="apresentacao"] .tela .moldura canvas { height: 520px; }
+.acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Teclado */
+.teclado { display: grid; gap: 14px; align-content: start; }
+.grupo { display: grid; gap: 8px; }
+.modos { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.modos button { padding: 6px 0; min-height: 46px; font-size: 1.0625rem; position: relative; }
+.modos button[aria-checked="true"] { background: linear-gradient(180deg, #5A4A2A, #4A3D24); border-color: #000; color: var(--ativo); }
+.modos button[aria-checked="true"]::after { content: ""; position: absolute; top: 5px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--ativo); box-shadow: 0 0 6px var(--ativo); }
+.ganho { display: grid; grid-template-columns: 30px 1fr 84px; gap: 10px; align-items: center; }
+.ganho label { font-weight: 700; color: var(--serigrafia); font-size: 1rem; }
+.ganho.ref { grid-template-columns: 1fr 84px 16px; }
+.ganho.inativo { opacity: .35; }
+.ganho.inativo input { pointer-events: none; }
+input[type=range] { width: 100%; accent-color: var(--ativo); margin: 0; min-height: 30px; }
+input[type=number], input[type=text], select {
+  width: 100%; min-height: 38px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--vinco);
+  background: var(--tela); color: var(--serigrafia); font-family: var(--display); font-size: 1rem;
+}
+select { font-family: var(--ui); }
+.campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.campos label { display: grid; gap: 4px; color: var(--serigrafia-2); font-size: .8125rem; }
+.atalhos { display: flex; gap: 6px; }
+.atalhos button { min-height: 32px; padding: 2px 12px; font-family: var(--display); font-weight: 400; }
+.comandos { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 8px; }
+.comandos .tecla { min-height: 54px; font-size: 1.125rem; }
+.iniciar:not(:disabled) { background: linear-gradient(180deg, #45C985, #2F9C63); color: #04170C; }
+.parar:not(:disabled) { background: linear-gradient(180deg, #F0595E, #C43B40); color: #fff; }
+.ajustes summary { cursor: pointer; color: var(--serigrafia-2); }
+.ajustes[open] { display: grid; gap: 12px; }
+.chave { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.chave input { width: 18px; height: 18px; accent-color: var(--ativo); margin: 0; }
+
+/* Histórico */
+.historico { display: grid; gap: 8px; align-content: start; }
+.tentativas { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 760px; overflow: auto; }
+.tentativa { background: var(--chassi); border: 1px solid var(--vinco); border-radius: 8px; padding: 8px 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: center; }
+.tentativa.sel { border-color: var(--ativo); }
+.tentativa .estrela { background: none; border: 0; cursor: pointer; font-size: 1.375rem; line-height: 1; color: #5C6B7A; padding: 2px; min-height: 0; }
+.tentativa .estrela[aria-pressed="true"] { color: var(--ativo); }
+.tentativa .cab { font-weight: 600; }
+.tentativa .cab small { display: block; color: var(--serigrafia-2); font-weight: 400; font-size: .8125rem; }
+.tentativa .num { font-family: var(--display); color: var(--serigrafia-2); font-size: .875rem; grid-column: 2 / 4; }
+.tentativa .botoes { display: flex; gap: 6px; }
+.tentativa .botoes button { min-height: 30px; padding: 2px 10px; font-size: .875rem; }
+.vazio { color: var(--serigrafia-2); }
+
+/* Quadro dos 7 */
+.quadro-corpo { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.quadro .moldura canvas { height: 340px; }
+.tabela7 { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .9375rem; }
+.tabela7 th { text-align: right; color: var(--serigrafia-2); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--vinco); }
+.tabela7 td { white-space: nowrap; text-align: right; padding: 7px 8px; border-bottom: 1px solid var(--vinco); font-family: var(--display); }
+.tabela7 th:first-child, .tabela7 td:first-child { text-align: left; font-family: var(--ui); font-weight: 600; }
+.tabela7 td:first-child::before { content: ""; display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 8px; vertical-align: middle; background: var(--c); }
+.tabela7 tr.sem td { color: #66778A; }
+.tabela7 td:nth-child(2) { font-size: .8125rem; color: var(--serigrafia-2); }
+
+/* Mensagens */
+#log { height: 190px; overflow: auto; margin: 10px 0; padding: 8px 10px; background: var(--tela); border-radius: 6px;
+  font: .8125rem/1.45 var(--display); color: var(--serigrafia-2); white-space: pre-wrap; }
+#log .env { color: var(--roda-a); } #log .erro { color: #FF9A9D; } #log .ok { color: var(--iniciar); }
+.linha-cmd { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+
+/* Abas Dirigir e Andar reto */
+.dirigir, .reto { display: none; }
+body[data-tela="dirigir"] .bancada, body[data-tela="reto"] .bancada { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; }
+body[data-tela="dirigir"] .bancada > :not(.dirigir), body[data-tela="reto"] .bancada > :not(.reto) { display: none; }
+body[data-tela="dirigir"] .dirigir, body[data-tela="reto"] .reto { display: grid; gap: 14px; }
+.direcao { display: grid; gap: 12px; }
+.direcao-corpo { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px 32px; align-items: center; }
+.cruz { display: grid; grid-template-columns: repeat(3, 84px); grid-template-rows: repeat(3, 84px); gap: 8px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.cruz .tecla { padding: 0; display: grid; place-items: center; border-radius: 12px; touch-action: none; -webkit-touch-callout: none; }
+.cruz svg { width: 34px; height: 34px; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.cruz .tecla.ativo { background: linear-gradient(180deg, #5A4A2A, #4A3D24); color: var(--ativo); transform: translateY(1px); }
+.d-cima { grid-area: 1 / 2; } .d-esq { grid-area: 2 / 1; } .d-dir { grid-area: 2 / 3; } .d-baixo { grid-area: 3 / 2; }
+.cruz-centro { grid-area: 2 / 2; display: grid; place-items: center; text-align: center; color: var(--serigrafia-2); font-size: .8125rem; line-height: 1.2; }
+.direcao-ajustes { display: grid; gap: 12px; max-width: 520px; }
+.deslizante { display: grid; gap: 4px; color: var(--serigrafia-2); }
+.deslizante b { color: var(--serigrafia); font-family: var(--display); font-weight: 400; }
+@media (hover: none) { .teclas-dica { display: none; } }
+.dirigir .moldura canvas, .reto .moldura canvas { height: 260px; }
+.pids { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.pid { display: grid; gap: 10px; align-content: start; border-top: 4px solid var(--c, var(--serigrafia-2)); }
+.pid-leit { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.pid-leit > div { background: var(--tela); border-radius: 6px; padding: 6px 8px; }
+.pid-leit dt { color: var(--serigrafia-2); font-size: .75rem; }
+.pid-leit dd { margin: 0; font-family: var(--display); font-size: 1.375rem; color: var(--c, var(--serigrafia)); }
+.pid-leit dd small { font-family: var(--ui); font-size: .75rem; color: var(--serigrafia-2); margin-left: 4px; }
+.pid .ganho label { font-weight: 700; }
+.manter-linha { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: end; }
+.manter-linha label { display: grid; gap: 4px; color: var(--serigrafia-2); font-size: .8125rem; }
+.reto { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; }
+.reto-info { display: grid; gap: 12px; }
+.reto .dif { max-width: 280px; }
+#btnZerarOdo { justify-self: start; }
+.aviso-local { margin: 0; color: var(--ativo); }
+.aviso-local:empty { display: none; }
+
+@media (max-width: 1100px) {
+  .pids { grid-template-columns: minmax(0, 1fr); }
+  body[data-tela="reto"] .reto { grid-template-columns: minmax(0, 1fr); }
+  body[data-tela] .bancada { grid-template-columns: 1fr; grid-template-areas: none; }
+  body[data-tela] .bancada > * { grid-area: auto; }
+  body[data-tela="apresentacao"] .mostradores { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body[data-tela="apresentacao"] .leitores { grid-template-columns: 1fr; }
+  .quadro-corpo { grid-template-columns: minmax(0, 1fr); }
+  .tabela7 { display: block; overflow-x: auto; }
+  .moldura canvas, body[data-tela="apresentacao"] .tela .moldura canvas { height: 420px; }
+}
+@media (max-width: 760px) {
+  /* No celular os comandos ficam sempre ao alcance, presos ao rodapé */
+  body { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); }
+  .comandos { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 10px);
+    background: var(--chassi); border-top: 1px solid var(--vinco); box-shadow: 0 -6px 16px rgba(0,0,0,.35); }
+}
+@media (max-width: 560px) {
+  .direcao-corpo { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  .direcao-ajustes { width: 100%; }
+  .cruz { grid-template-columns: repeat(3, 88px); grid-template-rows: repeat(3, 88px); }
+  .pid-leit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .seletor-tela { flex-wrap: wrap; }
+  .topo, .bancada { padding-left: 12px; padding-right: 12px; }
+  .conexao { margin-left: 0; }
+  .modos { grid-template-columns: repeat(4, 1fr); }
+  body[data-tela] .mostradores { grid-template-columns: 1fr 1fr; }
+  body[data-tela="apresentacao"] .m-ref, body[data-tela="apresentacao"] .m-pos { grid-column: auto; }
+  body[data-tela="apresentacao"] .m-erro { grid-column: 1 / -1; }
+  .m dd { font-size: 1.625rem; }
+  .moldura { padding: 6px; }
+  .moldura canvas, body[data-tela="apresentacao"] .tela .moldura canvas { height: 380px; }
+  .tabela7 { font-size: .8125rem; }
+  .tabela7 th:nth-child(2), .tabela7 td:nth-child(2) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+</style>
+</head>
+<body data-tela="sintonia">
+<header class="topo">
+  <div class="marca">
+    <h1>Robô móvel 2WD</h1>
+    <p>Controle de posição por odometria</p>
+  </div>
+  <div class="conexao" id="conexao" data-estado="desconectado">
+    <span class="led" aria-hidden="true"></span><span id="txtConexao">Desconectado</span>
+    <button id="btnBle" class="tecla">Conectar Bluetooth</button>
+    <button id="btnUsb" class="tecla">Conectar USB</button>
+    <button id="btnDesconectar" class="tecla" hidden>Desconectar</button>
+  </div>
+  <div class="seletor-tela" role="radiogroup" aria-label="Modo da tela">
+    <button role="radio" data-tela="sintonia" aria-checked="true">Sintonia</button>
+    <button role="radio" data-tela="apresentacao" aria-checked="false">Apresentação</button>
+    <button role="radio" data-tela="dirigir" aria-checked="false">Dirigir</button>
+    <button role="radio" data-tela="reto" aria-checked="false">Andar reto</button>
+  </div>
+</header>
+<p class="aviso" id="aviso" role="alert"></p>
+
+<main class="bancada">
+  <!-- Leitores -->
+  <section class="leitores modulo" aria-label="Monitoramento">
+    <div class="ident">
+      <span class="led-estado" id="ledEstado" data-e="0" aria-hidden="true"></span>
+      <div>
+        <div class="controlador" id="lModo">—</div>
+        <div class="estado" id="lEstado">Sem conexão</div>
+      </div>
+      <div class="relogio"><span id="lT">0,0</span> s</div>
+    </div>
+    <dl class="mostradores">
+      <div class="m m-ref"><dt>Referência</dt><dd><span id="lRef">—</span><small>m</small></dd></div>
+      <div class="m m-pos"><dt>Posição</dt><dd><span id="lPos">—</span><small>m</small></dd></div>
+      <div class="m m-erro"><dt>Erro</dt><dd><span id="lErro">—</span><small>mm</small></dd></div>
+      <div class="m m-a"><dt>Roda A, comandada</dt><dd><span id="lVa">—</span><small class="uVel">RPM</small></dd><p>medida <span id="lRa">—</span> RPM</p></div>
+      <div class="m m-b"><dt>Roda B, comandada</dt><dd><span id="lVb">—</span><small class="uVel">RPM</small></dd><p>medida <span id="lRb">—</span> RPM</p></div>
+    </dl>
+  </section>
+
+  <!-- Tela do osciloscópio -->
+  <section class="tela modulo" aria-labelledby="tituloTela">
+    <div class="tela-topo">
+      <h2 id="tituloTela">Nenhum experimento ainda</h2>
+      <div class="canais" role="group" aria-label="Canais">
+        <button class="canal c-pos" data-canal="pos" aria-pressed="true">Posição</button>
+        <button class="canal c-erro" data-canal="erro" aria-pressed="true">Erro</button>
+        <button class="canal c-vel" data-canal="vel" aria-pressed="true">Velocidade</button>
+        <button class="canal c-fant" data-canal="fantasma" aria-pressed="true" title="Tentativa anterior do mesmo controlador">Anterior</button>
+      </div>
+    </div>
+    <div class="moldura"><canvas id="osc" aria-label="Gráficos de posição, erro e velocidade comandada pelo tempo"></canvas></div>
+    <div class="tela-base">
+      <p id="fonte">Inicie um experimento para registrar os dados.</p>
+      <div class="acoes">
+        <button class="tecla req-con" id="btnLog">Baixar dados do ESP32</button>
+        <button class="tecla" id="btnPng">Salvar imagem</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Teclado de controle -->
+  <section class="teclado modulo req-con" aria-label="Controle">
+    <div class="grupo">
+      <h3>Controlador</h3>
+      <div class="modos" role="radiogroup" aria-label="Seleção do controle">
+        <button role="radio" data-modo="0" title="Malha aberta">MA</button><button role="radio" data-modo="1">P</button><button role="radio" data-modo="2">I</button><button role="radio" data-modo="3">D</button><button role="radio" data-modo="4">PI</button><button role="radio" data-modo="5">PD</button><button role="radio" data-modo="6">PID</button>
+      </div>
+    </div>
+    <div class="grupo" id="grupoGanhos">
+      <h3>Ganhos <span class="nota">erro em cm, saída em RPM</span></h3>
+      <div class="ganho" id="g-kp"><label for="s-kp">Kp</label><input type="range" id="s-kp" min="0" max="20" step="0.05"><input type="number" id="n-kp" min="0" step="0.05" inputmode="decimal" aria-label="Kp"></div>
+      <div class="ganho" id="g-ki"><label for="s-ki">Ki</label><input type="range" id="s-ki" min="0" max="5" step="0.01"><input type="number" id="n-ki" min="0" step="0.01" inputmode="decimal" aria-label="Ki"></div>
+      <div class="ganho" id="g-kd"><label for="s-kd">Kd</label><input type="range" id="s-kd" min="0" max="10" step="0.05"><input type="number" id="n-kd" min="0" step="0.05" inputmode="decimal" aria-label="Kd"></div>
+    </div>
+    <div class="grupo" id="grupoMA" hidden>
+      <h3>Malha aberta</h3>
+      <div class="campos">
+        <label>Comando<select id="maTipo"><option value="0">Velocidade (RPM)</option><option value="1">PWM fixo (%)</option></select></label>
+        <label><span id="maRotulo">Velocidade (RPM)</span><input type="number" id="maValor" step="1" inputmode="decimal"></label>
+        <label>Tempo em s (0 = automático)<input type="number" id="maTempo" min="0" max="30" step="0.1" inputmode="decimal"></label>
+      </div>
+      <p class="nota" id="maDica"></p>
+    </div>
+    <div class="grupo">
+      <h3>Referência</h3>
+      <div class="ganho ref"><input type="range" id="s-ref" min="0" max="1" step="0.01" aria-label="Referência"><input type="number" id="n-ref" min="0" max="1" step="0.01" inputmode="decimal" aria-label="Referência em metros"><span class="un">m</span></div>
+      <div class="atalhos"><button data-ref="0.25">0,25</button><button data-ref="0.5">0,50</button><button data-ref="0.75">0,75</button><button data-ref="1">1,00</button></div>
+    </div>
+    <div class="comandos">
+      <button class="tecla iniciar" id="btnIniciar">Iniciar</button>
+      <button class="tecla parar" id="btnParar">Parar <kbd>Esc</kbd></button>
+      <button class="tecla" id="btnReiniciar">Reiniciar</button>
+    </div>
+    <p class="nota" id="indReto"></p>
+    <details class="ajustes">
+      <summary>Ajustes do experimento</summary>
+      <div class="campos">
+        <label>Velocidade máxima (RPM)<input type="number" id="vmax" min="20" max="300" step="5"></label>
+        <label>Tolerância (mm)<input type="number" id="tol" min="1" max="100" step="1"></label>
+        <label>Tempo máximo (s)<input type="number" id="tmax" min="2" max="60" step="1"></label>
+      </div>
+      <label class="chave"><input type="checkbox" id="autoLog" checked> Baixar os dados do ESP32 ao terminar</label>
+      <button class="tecla" id="btnSalvar">Gravar ajustes no ESP32</button>
+    </details>
+  </section>
+
+  <!-- Histórico (Sintonia) -->
+  <section class="historico modulo" aria-labelledby="tituloHist">
+    <h2 id="tituloHist">Tentativas de <span id="hModo">PID</span></h2>
+    <p class="nota">A estrela marca a tentativa oficial deste controlador, a que vai para a apresentação.</p>
+    <ol class="tentativas" id="tentativas"></ol>
+  </section>
+
+  <!-- Quadro dos 7 (Apresentação) -->
+  <section class="quadro modulo" aria-labelledby="tituloQuadro">
+    <h2 id="tituloQuadro">Comparação dos controladores</h2>
+    <div class="quadro-corpo">
+      <div class="moldura"><canvas id="oscQuadro" aria-label="Posição pelo tempo das tentativas oficiais"></canvas></div>
+      <table class="tabela7">
+        <thead><tr><th>Controle</th><th>Ganhos</th><th>Final (m)</th><th>Erro (mm)</th><th>Sobressinal</th><th>Subida (s)</th><th>Acomod. (s)</th></tr></thead>
+        <tbody id="tabela7"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Mensagens e exportação (Sintonia) -->
+  <section class="mensagens modulo" aria-labelledby="tituloMsg">
+    <div class="msg-topo">
+      <h2 id="tituloMsg">Mensagens do robô</h2>
+      <div class="acoes"><button class="tecla" id="btnCsv">Exportar dados</button><button class="tecla" id="btnResumo">Exportar resumo</button></div>
+    </div>
+    <div id="log" aria-live="polite"></div>
+    <form id="formCmd" class="linha-cmd req-con"><input type="text" id="cmd" placeholder="Comando de texto, por exemplo GANHO 4 0 1" autocomplete="off" aria-label="Comando de texto"><button class="tecla" type="submit">Enviar</button></form>
+  </section>
+
+  <!-- Aba Dirigir: teclas e PID de rotação das rodas -->
+  <div class="dirigir">
+    <section class="modulo direcao req-con" aria-labelledby="tituloDir">
+      <h2 id="tituloDir">Dirigir</h2>
+      <p class="aviso-local" id="avisoDir" role="status"></p>
+      <div class="direcao-corpo">
+        <div class="cruz" id="cruz">
+          <button class="tecla d-cima" data-dir="frente" aria-label="Para frente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          <button class="tecla d-esq" data-dir="esquerda" aria-label="Virar à esquerda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 5l-7 7 7 7"/></svg></button>
+          <span class="cruz-centro">Segure para andar</span>
+          <button class="tecla d-dir" data-dir="direita" aria-label="Virar à direita"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+          <button class="tecla d-baixo" data-dir="re" aria-label="Ré"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg></button>
+        </div>
+        <div class="direcao-ajustes">
+          <label class="deslizante">Velocidade <b><span id="vVelDir">120</span> RPM</b><input type="range" id="velDir" min="30" max="300" step="10" value="120"></label>
+          <label class="deslizante">Intensidade da curva <b><span id="vCurva">60</span>%</b><input type="range" id="curva" min="10" max="100" step="5" value="60"></label>
+          <label class="chave"><input type="checkbox" id="inverter"> Inverter frente e trás</label>
+          <label class="chave"><input type="checkbox" id="inverterLados"> Inverter esquerda e direita</label>
+          <p class="nota teclas-dica">No teclado: setas ou W A S D. Soltar para. Esc para tudo.</p>
+          <button class="tecla parar" id="btnPararDir">Parar tudo</button>
+        </div>
+      </div>
+      <div class="moldura"><canvas id="oscRodas" aria-label="Rotação das rodas nos últimos 20 segundos"></canvas></div>
+      <p class="nota">Rotação medida (linha cheia) e alvo do PID (tracejado) nos últimos 20 s.</p>
+    </section>
+    <div class="pids req-con" aria-label="PID de rotação"></div>
+  </div>
+
+  <!-- Aba Andar reto: PID da diferença entre as rodas, separado do resto -->
+  <div class="reto">
+    <section class="modulo reto-info req-con" aria-labelledby="tituloReto">
+      <h2 id="tituloReto">Andar reto: PID da diferença entre as rodas</h2>
+      <p class="nota">Corrige a diferença de odometria entre a roda A e a roda B para o robô não desviar. A chave abaixo vale para os experimentos em malha fechada; na malha aberta a correção fica sempre desligada. No comando de andar uma distância (G) ela está sempre ligada: para tirá-la ali, zere os ganhos.</p>
+      <label class="chave"><input type="checkbox" id="retoLiga"> Correção ligada nos experimentos</label>
+      <div class="m m-erro dif"><dt>Diferença A − B</dt><dd><span id="lDif">—</span><small>mm</small></dd></div>
+      <p class="nota">O gráfico mostra a diferença de odometria desde a última vez que ela foi zerada. Cada experimento zera ao iniciar.</p>
+      <button class="tecla" id="btnZerarOdo">Zerar odometria</button>
+      <div class="moldura"><canvas id="oscReto" aria-label="Diferença entre as rodas nos últimos 20 segundos"></canvas></div>
+    </section>
+    <div id="pidReto" class="req-con"></div>
+  </div>
+</main>
+<template id="tplPid">
+  <section class="modulo pid">
+    <h2 class="titulo"></h2>
+    <p class="nota"></p>
+    <dl class="pid-leit">
+      <div><dt>Medida</dt><dd><span class="v-rpm">—</span><small>RPM</small></dd></div>
+      <div><dt>Alvo</dt><dd><span class="v-sp">—</span><small>RPM</small></dd></div>
+      <div><dt>Potência</dt><dd><span class="v-duty">—</span><small>%</small></dd></div>
+      <div><dt>Odometria</dt><dd><span class="v-odo">—</span><small>m</small></dd></div>
+    </dl>
+    <div class="ganho" data-g="kp"><label>Kp</label><input type="range" min="0" max="5" step="0.01" aria-label="Kp"><input type="number" min="0" step="0.01" inputmode="decimal" aria-label="Kp valor"></div>
+    <div class="ganho" data-g="ki"><label>Ki</label><input type="range" min="0" max="5" step="0.01" aria-label="Ki"><input type="number" min="0" step="0.01" inputmode="decimal" aria-label="Ki valor"></div>
+    <div class="ganho" data-g="kd"><label>Kd</label><input type="range" min="0" max="2" step="0.01" aria-label="Kd"><input type="number" min="0" step="0.01" inputmode="decimal" aria-label="Kd valor"></div>
+    <button class="tecla aplicar">Aplicar ganhos</button>
+    <div class="manter-linha">
+      <label>RPM (negativo = ré)<input type="number" class="rpm" value="100" min="-300" max="300" step="5" inputmode="numeric"></label>
+      <button class="tecla manter">Manter RPM</button>
+      <button class="tecla soltar">Parar</button>
+    </div>
+  </section>
+</template>
+<script>
+"use strict";
+// ---------------- protocolo: linhas do firmware v2 ----------------
+const MODOS = ["MA", "P", "I", "D", "PI", "PD", "PID"];
+const NOME_MODO = ["Malha aberta", "Proporcional", "Integral", "Derivativo", "PI", "PD", "PID"];
+const TERMOS = [0, 1, 2, 4, 3, 5, 7];
+const ESTADOS = ["Pronto", "Executando", "Finalizando", "Concluído", "Parado", "Tempo esgotado"];
+const TIPOS_DADOS = new Set(["E", "P", "R", "C", "T", "N", "LH", "LD", "LF"]);
+
+function analisarLinha(linha) {
+  const l = linha.replace(/\r$/, "");
+  const i = l.indexOf(",");
+  const tipo = i > 0 ? l.slice(0, i) : "";
+  if (TIPOS_DADOS.has(tipo)) return { tipo, v: l.slice(i + 1).split(",").map(Number) };
+  return { tipo: "texto", texto: l };
+}
+if (typeof module !== "undefined") module.exports = { analisarLinha, MODOS, NOME_MODO, TERMOS, ESTADOS };
+
+// ---------------- métricas de resposta ao degrau ----------------
+function calcularMetricas(amostras, ref, tolMm) {
+  if (!amostras || !amostras.length) return null;
+  const tol = (tolMm || 10) / 1000;
+  let max = -Infinity, t10 = null, t90 = null, tAcom = 0;
+  amostras.forEach((s, i) => {
+    if (s.pos > max) max = s.pos;
+    if (t10 === null && s.pos >= 0.1 * ref) t10 = s.t;
+    if (t90 === null && s.pos >= 0.9 * ref) t90 = s.t;
+    if (Math.abs(ref - s.pos) > tol) tAcom = amostras[i + 1] ? amostras[i + 1].t : NaN;
+  });
+  const final = amostras[amostras.length - 1].pos;
+  if (Math.abs(ref - final) > tol) tAcom = NaN;
+  const sobre = Math.max(0, (max - ref) * 1000);
+  return {
+    final, erro: (ref - final) * 1000, sobre, sobrePct: ref > 0 ? sobre / (ref * 10) : 0,
+    tSub: t10 !== null && t90 !== null ? t90 - t10 : NaN, tAcom, dur: amostras[amostras.length - 1].t,
+  };
+}
+if (typeof module !== "undefined") module.exports = { calcularMetricas };
+
+// ---------------- arquivo de experimentos ----------------
+// No Node os módulos vêm por require; na página, das declarações anteriores do mesmo script.
+const _dep = typeof require !== "undefined"
+  ? { ...require("./metricas.js"), ...require("./protocolo.js") }
+  : { calcularMetricas, MODOS, ESTADOS };
+const CHAVE_ARQUIVO = "ihm-c-experimentos";
+const MAX_EXPERIMENTOS = 60;
+
+class Arquivo {
+  constructor(armazenamento) { this.arm = armazenamento; this.runs = []; this.seq = 0; }
+
+  novo(modo, ref, ganhos, tolMm, unidade) {
+    const r = {
+      id: ++this.seq, hora: new Date().toLocaleTimeString("pt-BR"), modo, ref,
+      kp: ganhos[0], ki: ganhos[1], kd: ganhos[2], tol: tolMm, unidade,
+      amostras: [], estado: 1, met: null, logEsp: false, oficial: false,
+    };
+    this.runs.push(r);
+    if (this.runs.length > MAX_EXPERIMENTOS) this.runs.shift();
+    return r;
+  }
+
+  adicionarAmostra(r, s) {
+    const ult = r.amostras[r.amostras.length - 1];
+    if (!ult || s.t > ult.t) r.amostras.push(s);
+  }
+
+  finalizar(r, estado) {
+    r.estado = estado;
+    if (!r.met) r.met = _dep.calcularMetricas(r.amostras, r.ref, r.tol);
+    this.salvar();
+  }
+
+  // Linha R: modo,ref,posF,erroMm,sobreMm,sobrePct,tSub,tAcom,tTot,estado (-1 = não se aplica)
+  aplicarResultado(r, v) {
+    const nd = (x) => (x < 0 ? NaN : x);
+    r.ref = v[1];
+    r.met = { final: v[2], erro: v[3], sobre: v[4], sobrePct: v[5], tSub: nd(v[6]), tAcom: nd(v[7]), dur: v[8] };
+    r.estado = v[9];
+  }
+
+  // Cabeçalho LH + amostras LD. Devolve o experimento atualizado, ou null se a contagem não bate.
+  // O LOG vai para o último experimento concluído do mesmo modo com a mesma referência; se esse já
+  // tem um LOG, só é substituído quando é o mesmo (mesmos ganhos e contagem). Senão, cria outro.
+  anexarLog(cab, amostras) {
+    if (amostras.length !== cab.n) return null;
+    const perto = (a, b) => Math.abs(a - b) < 1e-6;
+    const mesmoLog = (x) => x.logEsp && x.amostras.length === cab.n && perto(x.kp, cab.kp) && perto(x.ki, cab.ki) && perto(x.kd, cab.kd);
+    const doModo = this.runs.filter((x) => x.modo === cab.modo && this.concluido(x) && perto(x.ref, cab.ref));
+    const ultimo = doModo[doModo.length - 1];
+    let r = (ultimo && (!ultimo.logEsp || mesmoLog(ultimo))) ? ultimo : doModo.find(mesmoLog);
+    if (!r) {
+      r = this.novo(cab.modo, cab.ref, [cab.kp, cab.ki, cab.kd], this.runs[this.runs.length - 1]?.tol ?? 10, cab.unidade);
+      r.estado = cab.estado;
+    }
+    Object.assign(r, { ref: cab.ref, kp: cab.kp, ki: cab.ki, kd: cab.kd, unidade: cab.unidade, logEsp: true });
+    r.amostras = amostras.map((s) => ({ ...s, ref: cab.ref }));
+    if (!r.met) r.met = _dep.calcularMetricas(r.amostras, r.ref, r.tol);
+    this.salvar();
+    return r;
+  }
+
+  // A linha R só vale para o experimento em andamento do mesmo modo.
+  alvoDoResultado(atual, v) { return atual && atual.modo === v[0] ? atual : null; }
+
+  concluido(r) { return r.estado !== 1 && r.estado !== 2; }
+  porId(id) { return this.runs.find((r) => r.id === id) || null; }
+  doModo(modo) { return this.runs.filter((r) => r.modo === modo); }
+
+  anterior(r) {
+    const lista = this.doModo(r.modo).filter((x) => this.concluido(x) && x.id < r.id && x.amostras.length);
+    return lista[lista.length - 1] || null;
+  }
+
+  oficial(modo) {
+    const lista = this.doModo(modo).filter((x) => this.concluido(x) && x.amostras.length);
+    return lista.find((x) => x.oficial) || lista[lista.length - 1] || null;
+  }
+
+  marcarOficial(id) {
+    const r = this.porId(id); if (!r) return;
+    for (const x of this.doModo(r.modo)) x.oficial = x === r;
+    this.salvar();
+  }
+
+  remover(id) { this.runs = this.runs.filter((r) => r.id !== id); this.salvar(); }
+  limpar() { this.runs = []; this.salvar(); }
+
+  salvar() {
+    try { this.arm.setItem(CHAVE_ARQUIVO, JSON.stringify(this.runs)); } catch (e) { /* sem armazenamento */ }
+  }
+  carregar() {
+    try {
+      const v = JSON.parse(this.arm.getItem(CHAVE_ARQUIVO) || "[]");
+      if (!Array.isArray(v)) return;
+      this.runs = v.filter((r) => r && Array.isArray(r.amostras));
+      for (const r of this.runs) if (!this.concluido(r)) r.estado = 4;
+      this.seq = this.runs.reduce((m, r) => Math.max(m, r.id), 0);
+    } catch (e) { this.runs = []; }
+  }
+
+  csvDados() {
+    const n = (v, d) => (Number.isFinite(v) ? v.toFixed(d).replace(".", ",") : "");
+    const l = ["experimento;controle;kp;ki;kd;referencia_m;t_s;posicao_m;erro_mm;u;vel_cmd_A;vel_cmd_B;vel_medida_A_rpm;vel_medida_B_rpm;unidade_vel;fonte"];
+    for (const r of this.runs) for (const s of r.amostras) {
+      const ref = s.ref ?? r.ref;
+      l.push([r.id, _dep.MODOS[r.modo], n(r.kp, 3), n(r.ki, 3), n(r.kd, 3), n(ref, 3), n(s.t, 2), n(s.pos, 4),
+        n((ref - s.pos) * 1000, 1), n(s.u, 1), n(s.cA, 1), n(s.cB, 1), n(s.rA, 1), n(s.rB, 1),
+        r.unidade ? "%PWM" : "RPM", r.logEsp ? "ESP32" : "ao vivo"].join(";"));
+    }
+    return l.join("\r\n");
+  }
+
+  csvResumo() {
+    const n = (v, d) => (Number.isFinite(v) ? v.toFixed(d).replace(".", ",") : "");
+    const l = ["experimento;hora;controle;oficial;kp;ki;kd;referencia_m;posicao_final_m;erro_final_mm;sobressinal_mm;sobressinal_pct;t_subida_s;t_acomodacao_s;duracao_s;estado"];
+    for (const r of this.runs) {
+      const m = r.met || {};
+      l.push([r.id, r.hora, _dep.MODOS[r.modo], this.oficial(r.modo) === r ? "sim" : "", n(r.kp, 3), n(r.ki, 3), n(r.kd, 3),
+        n(r.ref, 3), n(m.final, 4), n(m.erro, 1), n(m.sobre, 1), n(m.sobrePct, 1), n(m.tSub, 2), n(m.tAcom, 2),
+        n(m.dur, 2), _dep.ESTADOS[r.estado]].join(";"));
+    }
+    return l.join("\r\n");
+  }
+}
+if (typeof module !== "undefined") module.exports = { Arquivo };
+
+// ---------------- osciloscópio (canvas, sem bibliotecas) ----------------
+const COR_TELA = { fundo: "#0C1E2B", grade: "#1F3E50", eixo: "#2F5A70", texto: "#8FB3C6", faixa: "rgba(255,178,63,.10)" };
+
+function passoBonito(bruto) {
+  if (!(bruto > 0)) return 1;
+  const mag = 10 ** Math.floor(Math.log10(bruto)), r = bruto / mag;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * mag;
+}
+const fmtBr = (v, d) => v.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const casasDe = (p) => (p >= 1 ? 0 : p >= 0.1 ? 1 : p >= 0.01 ? 2 : 3);
+
+// faixas: [{ rotulo, unidade, series: [{pts, cor, larg, trac, alfa}], linhasH: [], tol: [y1,y2] }]
+// opcoes: { xMax, divY: 4 }
+function desenharOsc(cv, faixas, opcoes = {}) {
+  if (!cv || !cv.clientWidth || !cv.clientHeight) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const c = cv.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.fillStyle = COR_TELA.fundo; c.fillRect(0, 0, W, H);
+  const vis = faixas.filter((f) => !f.oculta);
+  if (!vis.length) return;
+
+  // Eixo X comum: 10 divisões
+  let xMax = opcoes.xMax || 0;
+  for (const f of vis) for (const s of f.series) for (const p of s.pts) xMax = Math.max(xMax, p[0]);
+  const pX = passoBonito((xMax || 5) / 10), xFim = pX * 10;
+  const E = 8, D = 8, T = 6, B = 22, gap = 6;
+  const altF = (H - T - B - gap * (vis.length - 1)) / vis.length;
+  const X = (x) => E + (x / xFim) * (W - E - D);
+  const divY = opcoes.divY || 4;
+
+  c.font = `12px "Share Tech Mono", ui-monospace, monospace`;
+  vis.forEach((f, k) => {
+    const y0 = T + k * (altF + gap);
+    let lo = Infinity, hi = -Infinity;
+    for (const s of f.series) for (const [, y] of s.pts) if (Number.isFinite(y)) { lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    for (const v of f.linhasH || []) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    if (!Number.isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi - lo < 1e-9) { hi += 0.5; lo -= 0.5; }
+    const loDados = lo, margem = (hi - lo) * 0.06; lo -= margem; hi += margem;
+    if (loDados >= 0 && lo < 0) lo = 0;   // dados positivos: não desperdiça divisões abaixo de zero
+    const pY = passoBonito((hi - lo) / divY);
+    lo = Math.floor(lo / pY) * pY;
+    const nDiv = Math.max(divY, Math.ceil((hi - lo) / pY - 1e-9));
+    hi = lo + nDiv * pY;
+    const Y = (y) => y0 + (1 - (y - lo) / (hi - lo)) * altF;
+
+    c.save();
+    c.beginPath(); c.rect(E, y0, W - E - D, altF); c.clip();
+    if (f.tol) { c.fillStyle = COR_TELA.faixa; c.fillRect(E, Y(f.tol[1]), W - E - D, Y(f.tol[0]) - Y(f.tol[1])); }
+    // Grade em divisões
+    c.strokeStyle = COR_TELA.grade; c.lineWidth = 1;
+    for (let i = 0; i <= 10; i++) { const x = Math.round(X(i * pX)) + 0.5; c.beginPath(); c.moveTo(x, y0); c.lineTo(x, y0 + altF); c.stroke(); }
+    for (let j = 0; j <= nDiv; j++) { const y = Math.round(Y(lo + j * pY)) + 0.5; c.beginPath(); c.moveTo(E, y); c.lineTo(W - D, y); c.stroke(); }
+    // Zero e linhas de referência
+    c.strokeStyle = COR_TELA.eixo;
+    if (lo < 0 && hi > 0) { c.beginPath(); c.moveTo(E, Y(0)); c.lineTo(W - D, Y(0)); c.stroke(); }
+    for (const v of f.linhasH || []) {
+      c.strokeStyle = "rgba(217,225,232,.55)"; c.setLineDash([5, 4]);
+      c.beginPath(); c.moveTo(E, Y(v)); c.lineTo(W - D, Y(v)); c.stroke(); c.setLineDash([]);
+    }
+    // Traços
+    for (const s of f.series) {
+      if (s.pts.length < 2) continue;
+      c.globalAlpha = s.alfa ?? 1;
+      c.strokeStyle = s.cor; c.lineWidth = s.larg || 2; c.lineJoin = "round";
+      c.setLineDash(s.trac ? [6, 4] : []);
+      c.beginPath();
+      s.pts.forEach(([x, y], i) => (i ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y))));
+      c.stroke();
+    }
+    c.globalAlpha = 1; c.setLineDash([]);
+    c.restore();
+    // Rótulos da faixa
+    c.fillStyle = COR_TELA.texto; c.textAlign = "left";
+    c.fillText(`${f.rotulo}  ${fmtBr(pY, casasDe(pY))} ${f.unidade}/div`, E + 6, y0 + 15);
+    c.textAlign = "right";
+    c.fillText(`${fmtBr(hi, casasDe(pY))}`, W - D - 6, y0 + 15);
+    c.fillText(`${fmtBr(lo, casasDe(pY))}`, W - D - 6, y0 + altF - 6);
+  });
+  c.textAlign = "left"; c.fillStyle = COR_TELA.texto;
+  c.fillText(`tempo  ${fmtBr(pX, casasDe(pX))} s/div`, E + 6, H - 6);
+  c.textAlign = "right";
+  c.fillText(`${fmtBr(xFim, casasDe(pX))} s`, W - D - 6, H - 6);
+}
+
+// ---------------- conexão: Bluetooth LE (Nordic UART) ou USB (Web Serial) ----------------
+const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+class Conexao {
+  constructor({ aoLinha, aoEstado, aoErro }) {
+    Object.assign(this, { aoLinha, aoEstado, aoErro });
+    this.canal = null; this.fila = Promise.resolve(); this.naFila = 0; this.buffer = "";
+    this.dec = new TextDecoder(); this.enc = new TextEncoder();
+  }
+  get conectado() { return !!this.canal; }
+
+  receber(texto) {
+    this.buffer += texto;
+    let fim;
+    while ((fim = this.buffer.indexOf("\n")) >= 0) {
+      const l = this.buffer.slice(0, fim);
+      this.buffer = this.buffer.slice(fim + 1);
+      try { this.aoLinha(l); } catch (e) { console.error(e, l); }
+    }
+    if (this.buffer.length > 4000) this.buffer = "";
+  }
+
+  async conectarBle() {
+    if (!navigator.bluetooth) return this.aoErro("Este navegador não tem Bluetooth. Use Chrome ou Edge, ou conecte pelo cabo USB.");
+    try {
+      this.aoEstado("procurando");
+      const disp = await navigator.bluetooth.requestDevice({ filters: [{ services: [NUS] }, { namePrefix: "Carrinho" }], optionalServices: [NUS] });
+      disp.addEventListener("gattserverdisconnected", () => this.aoCair());
+      const svc = await (await disp.gatt.connect()).getPrimaryService(NUS);
+      const rx = await svc.getCharacteristic(NUS_RX), tx = await svc.getCharacteristic(NUS_TX);
+      await tx.startNotifications();
+      tx.addEventListener("characteristicvaluechanged", (e) => this.receber(this.dec.decode(e.target.value, { stream: true })));
+      this.canal = {
+        tipo: "Bluetooth", nome: disp.name || "robô",
+        escrever: async (b) => { for (let i = 0; i < b.length; i += 20) await rx.writeValueWithResponse(b.slice(i, i + 20)); },
+        fechar: () => disp.gatt.connected && disp.gatt.disconnect(),
+      };
+      this.aoEstado("conectado");
+      this.enviar("CFG", true);
+    } catch (e) {
+      this.aoEstado("desconectado");
+      if (e.name !== "NotFoundError") this.aoErro("Não foi possível conectar: " + e.message);
+    }
+  }
+
+  async conectarUsb() {
+    if (!navigator.serial) return this.aoErro("Este navegador não tem acesso à porta USB. Use Chrome ou Edge no computador.");
+    try {
+      const porta = await navigator.serial.requestPort();
+      await porta.open({ baudRate: 115200 });
+      try { await porta.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) {}
+      const escritor = porta.writable.getWriter();
+      const leitor = porta.readable.getReader();
+      this.canal = {
+        tipo: "USB", nome: "porta serial",
+        escrever: (b) => escritor.write(b),
+        fechar: async () => { try { await leitor.cancel(); } catch (e) {} },
+      };
+      this.aoEstado("conectado");
+      (async () => {
+        try { for (;;) { const { value, done } = await leitor.read(); if (done) break; this.receber(this.dec.decode(value, { stream: true })); } }
+        catch (e) {}
+        finally { try { leitor.releaseLock(); escritor.releaseLock(); await porta.close(); } catch (e) {} this.aoCair(); }
+      })();
+      // Abrir a porta pode reiniciar o ESP32: liga a telemetria pela Serial depois do boot.
+      setTimeout(() => this.ligarTelemetriaUsb(), 1500);
+    } catch (e) {
+      if (e.name !== "NotFoundError") this.aoErro("Não foi possível abrir a porta: " + e.message);
+    }
+  }
+  ligarTelemetriaUsb() { if (this.canal?.tipo === "USB") { this.enviar("TEL 1", true); this.enviar("CFG", true); } }
+
+  desconectar() { this.canal?.fechar(); }
+  aoCair() { if (!this.canal) return; this.ultimoTipo = this.canal.tipo; this.canal = null; this.aoEstado("desconectado"); }
+
+  enviar(cmd, silencioso = false) {
+    if (!this.canal) return false;
+    const bytes = this.enc.encode(cmd + "\n"), canal = this.canal;
+    this.naFila++;
+    this.fila = this.fila.then(() => canal.escrever(bytes))
+      .catch((e) => this.aoErro("Falha ao enviar: " + e.message))
+      .finally(() => this.naFila--);
+    return !silencioso;
+  }
+}
+
+// ---------------- direção manual: teclas -> comando "J frente giro" ----------------
+const TECLAS_DIRECAO = {
+  ArrowUp: "frente", KeyW: "frente", ArrowDown: "re", KeyS: "re",
+  ArrowLeft: "esquerda", KeyA: "esquerda", ArrowRight: "direita", KeyD: "direita",
+};
+function direcaoDaTecla(code) { return TECLAS_DIRECAO[code] || null; }
+
+// vel em RPM, curva de 0 a 1. Na ré o giro é invertido, como um carro:
+// a traseira vai para o lado da seta.
+function comandoDirecao(pressionadas, vel, curva) {
+  const frente = (pressionadas.has("frente") ? 1 : 0) - (pressionadas.has("re") ? 1 : 0);
+  let giro = (pressionadas.has("direita") ? 1 : 0) - (pressionadas.has("esquerda") ? 1 : 0);
+  if (frente < 0) giro = -giro;
+  return `J ${frente * vel + 0} ${Math.round(giro * vel * curva) + 0}`;
+}
+if (typeof module !== "undefined") module.exports = { comandoDirecao, direcaoDaTecla };
+
+// ---------------- abas Dirigir e Andar reto ----------------
+// Dirigir: teclas (tela e teclado) + PID de rotação de cada roda e das duas juntas.
+// Andar reto: só o PID da diferença entre as rodas (comando H e RETO), isolado do resto.
+const rodas = (() => {
+  const pressionadas = new Set();
+  const hist = [];                 // telemetria T: { t, a, b, spA, spB, dif }
+  const JANELA_S = 20;
+  let repeticao = null, ultimoJ = "", rpmMantida = false, bloqueado = false;
+  const pid = {};                  // A, B, AB, H -> elemento do módulo
+
+  const PIDS = [
+    { id: "A", alvo: ".pids", titulo: "Roda A", leitura: true, cmdK: "A K", cmdR: "A R", parar: "A R 0", cor: "--roda-a" },
+    { id: "B", alvo: ".pids", titulo: "Roda B", leitura: true, cmdK: "B K", cmdR: "B R", parar: "B R 0", cor: "--roda-b" },
+    { id: "AB", alvo: ".pids", titulo: "As duas rodas juntas", nota: "Mesmos ganhos e mesma RPM nas duas rodas.", cmdK: "K", cmdR: "R", parar: "X" },
+    { id: "H", alvo: "#pidReto", titulo: "Ganhos da correção", nota: "Entrada: diferença A − B em mm. Saída: correção de RPM somada a uma roda e subtraída da outra.", cmdK: "H" },
+  ];
+
+  function montar() {
+    const tpl = $("tplPid");
+    for (const d of PIDS) {
+      const no = tpl.content.firstElementChild.cloneNode(true);
+      no.dataset.pid = d.id;
+      if (d.cor) no.style.setProperty("--c", `var(${d.cor})`);
+      no.querySelector(".titulo").textContent = d.titulo;
+      no.querySelector(".nota").textContent = d.nota || "";
+      no.querySelector(".pid-leit").hidden = !d.leitura;
+      no.querySelector(".manter-linha").hidden = !d.cmdR;
+      for (const g of no.querySelectorAll("[data-g]")) {
+        const s = g.querySelector("input[type=range]"), n = g.querySelector("input[type=number]");
+        s.addEventListener("input", () => (n.value = s.value));
+        n.addEventListener("change", () => (s.value = n.value));
+      }
+      no.querySelector(".aplicar").addEventListener("click", () => {
+        const k = ["kp", "ki", "kd"].map((g) => +(Number(no.querySelector(`[data-g="${g}"] input[type=number]`).value) || 0).toFixed(3));
+        enviar(`${d.cmdK} ${k.join(" ")}`);
+      });
+      if (d.cmdR) {
+        no.querySelector(".manter").addEventListener("click", () => {
+          const r = Math.max(-300, Math.min(300, Math.round(Number(no.querySelector(".rpm").value) || 0)));
+          enviar(`${d.cmdR} ${r}`);
+          rpmMantida = r !== 0;
+        });
+        no.querySelector(".soltar").addEventListener("click", () => { enviar(d.parar); rpmMantida = false; });
+      }
+      document.querySelector(d.alvo).appendChild(no);
+      pid[d.id] = no;
+    }
+  }
+
+  function preencherGanhos(id, kp, ki, kd) {
+    const no = pid[id]; if (!no) return;
+    for (const [g, v] of [["kp", kp], ["ki", ki], ["kd", kd]]) {
+      const caixa = no.querySelector(`[data-g="${g}"]`);
+      if (caixa.contains(document.activeElement)) continue;
+      caixa.querySelector("input[type=range]").value = v;
+      caixa.querySelector("input[type=number]").value = String(Number(v));
+    }
+  }
+
+  // Linha C: dutyMax,cruzeiro,kpA,kiA,kdA,kpB,kiB,kdB,kpR,kiR,kdR,diamA,diamB,pprA,pprB,dutyMin,invertido,lados
+  function aoC(v) {
+    preencherGanhos("A", v[2], v[3], v[4]);
+    preencherGanhos("B", v[5], v[6], v[7]);
+    if (!pid.AB.dataset.tocado) preencherGanhos("AB", v[2], v[3], v[4]);
+    preencherGanhos("H", v[8], v[9], v[10]);
+    $("inverter").checked = v[16] === 1;
+    $("inverterLados").checked = v[17] === 1;
+  }
+
+  function aoP(c) {
+    $("retoLiga").checked = !!c.reto;
+    txt("indReto", `Andar reto ${c.reto ? "ligado" : "desligado"} (ajuste na aba Andar reto).`);
+  }
+
+  // Linha T: rpmA,rpmB,spA,spB,dutyA,dutyB,odoA,odoB,estNav,perc,alvo,dif,sA,sB
+  function aoT(v) {
+    const sA = v[12] === -1 ? -1 : 1, sB = v[13] === -1 ? -1 : 1;
+    const t = performance.now() / 1000;
+    const dif = (v[6] - v[7]) * 1000;
+    hist.push({ t, a: v[0] * sA, b: v[1] * sB, spA: v[2] * sA, spB: v[3] * sB, dif });
+    while (hist.length && t - hist[0].t > JANELA_S) hist.shift();
+    for (const [id, i] of [["A", 0], ["B", 1]]) {
+      const no = pid[id], s = i ? sB : sA;
+      no.querySelector(".v-rpm").textContent = fmt(v[i] * s, 0);
+      no.querySelector(".v-sp").textContent = fmt(v[2 + i] * s, 0);
+      no.querySelector(".v-duty").textContent = fmt(v[4 + i], 0);
+      no.querySelector(".v-odo").textContent = fmt(v[6 + i], 3);
+    }
+    txt("lDif", comSinal(dif, 0));
+    desenhar();
+  }
+
+  function desenhar() {
+    const t0 = hist.length ? hist[hist.length - 1].t - JANELA_S : 0;
+    const pts = (k) => hist.map((h) => [Math.max(0, h.t - t0), h[k]]);
+    const tela = document.body.dataset.tela;
+    if (tela === "dirigir") {
+      desenharOsc($("oscRodas"), [{ rotulo: "Rotação", unidade: "RPM", linhasH: [0], series: [
+        { pts: pts("spA"), cor: css("--roda-a"), larg: 1.2, trac: true, alfa: 0.8 },
+        { pts: pts("spB"), cor: css("--roda-b"), larg: 1.2, trac: true, alfa: 0.8 },
+        { pts: pts("a"), cor: css("--roda-a"), larg: 2.4 },
+        { pts: pts("b"), cor: css("--roda-b"), larg: 2.4 }] }], { xMax: JANELA_S, divY: 4 });
+    } else if (tela === "reto") {
+      desenharOsc($("oscReto"), [{ rotulo: "Diferença A − B", unidade: "mm", linhasH: [0],
+        series: [{ pts: pts("dif"), cor: css("--erro"), larg: 2.4 }] }], { xMax: JANELA_S, divY: 4 });
+    }
+  }
+
+  // ---------- direção ----------
+  function atualizarDirecao() {
+    document.querySelectorAll("#cruz [data-dir]").forEach((b) => b.classList.toggle("ativo", pressionadas.has(b.dataset.dir)));
+    if (!pressionadas.size || !conexao.conectado) {
+      clearInterval(repeticao); repeticao = null;
+      if (conexao.conectado && ultimoJ) enviar("J 0 0", true);
+      ultimoJ = "";
+      return;
+    }
+    const enviarJ = () => {
+      if (conexao.naFila > 1) return;        // conexão lenta: não acumula comandos velhos
+      ultimoJ = comandoDirecao(pressionadas, Number($("velDir").value), Number($("curva").value) / 100);
+      enviar(ultimoJ, true);
+    };
+    enviarJ();
+    if (!repeticao) repeticao = setInterval(enviarJ, 150);
+  }
+  // Solta as teclas e para uma RPM mantida. semJ: quem chama já mandou parar (Esc).
+  function soltarTudo(semJ = false) {
+    if (semJ) ultimoJ = "";
+    if (pressionadas.size) { pressionadas.clear(); atualizarDirecao(); }
+    if (rpmMantida) { rpmMantida = false; if (!semJ) enviar("X"); }
+  }
+
+  // Durante um experimento, qualquer comando manual o cancelaria no firmware.
+  function bloquear(sim) {
+    bloqueado = sim;
+    if (sim) soltarTudo(true);
+    for (const el of document.querySelectorAll("#cruz button, .pids .manter, .pids .rpm, #inverter, #inverterLados")) if (sim) el.disabled = true;
+    txt("avisoDir", sim ? "Há um experimento em andamento. Para dirigir, pare o experimento ou espere ele terminar." : "");
+  }
+
+  function ligar() {
+    for (const b of document.querySelectorAll("#cruz [data-dir]")) {
+      const dir = b.dataset.dir;
+      b.addEventListener("pointerdown", (e) => { e.preventDefault(); if (b.disabled) return; b.setPointerCapture?.(e.pointerId); pressionadas.add(dir); atualizarDirecao(); });
+      const soltar = () => { if (pressionadas.delete(dir)) atualizarDirecao(); };
+      for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, soltar);
+      b.addEventListener("contextmenu", (e) => e.preventDefault());
+    }
+    const digitando = () => { const el = document.activeElement; return el && (el.tagName === "TEXTAREA" || el.tagName === "SELECT" || (el.tagName === "INPUT" && !["range", "checkbox"].includes(el.type))); };
+    document.addEventListener("keydown", (e) => {
+      const dir = direcaoDaTecla(e.code);
+      if (!dir || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.body.dataset.tela !== "dirigir" || digitando() || !conexao.conectado || bloqueado) return;
+      e.preventDefault();
+      if (e.repeat || pressionadas.has(dir)) return;
+      pressionadas.add(dir); atualizarDirecao();
+    });
+    document.addEventListener("keyup", (e) => { const dir = direcaoDaTecla(e.code); if (dir && pressionadas.delete(dir)) atualizarDirecao(); });
+    window.addEventListener("blur", soltarTudo);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) soltarTudo(); });
+    on("velDir", "input", (e) => txt("vVelDir", e.target.value));
+    on("curva", "input", (e) => txt("vCurva", e.target.value));
+    on("inverter", "change", (e) => enviar(`I ${e.target.checked ? 1 : 0}`));
+    on("inverterLados", "change", (e) => enviar(`E ${e.target.checked ? 1 : 0}`));
+    on("btnPararDir", "click", () => { soltarTudo(true); enviar("X"); });
+    on("btnZerarOdo", "click", () => enviar("Z"));
+    on("retoLiga", "change", (e) => enviar(`RETO ${e.target.checked ? 1 : 0}`));
+    pid.AB.addEventListener("input", () => (pid.AB.dataset.tocado = "1"));
+  }
+
+  function iniciar() { montar(); ligar(); }
+  return { iniciar, aoC, aoP, aoT, desenhar, soltarTudo, bloquear };
+})();
+
+// ---------------- telas: Sintonia e Apresentação ----------------
+const COR_MODO = ["#A7B4C2", "#7AA7FF", "#C792EA", "#E8A87C", "#5FD3E6", "#FFB23F", "#7EE081"];
+const $ = (id) => document.getElementById(id);
+const on = (id, ev, fn) => { const e = $(id); if (e) e.addEventListener(ev, fn); };
+const txt = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+const fmt = (v, d = 0) => (Number.isFinite(v) ? fmtBr(v, d) : "—");
+const comSinal = (v, d = 0) => (Number.isFinite(v) ? (v > 0 ? "+" : "") + fmtBr(v, d) : "—");
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const armazenamento = (() => { try { return window.localStorage; } catch (e) { return { getItem: () => null, setItem() {} }; } })();
+
+const cfg = { modo: 6, ref: 0.5, vmax: 150, tol: 10, tmax: 15, maTipo: 0, maRpm: 100, maDuty: 30, maTempo: 0, reto: 1,
+  ganhos: MODOS.map(() => [0, 0, 0]), dutyMax: 50, diam: 65 };
+const exp = { estado: 0, t: 0, modo: 6, ref: 0.5, pos: NaN, erro: NaN, u: 0, cA: NaN, cB: NaN, rA: NaN, rB: NaN };
+const canais = { pos: true, erro: true, vel: true, fantasma: true };
+const arquivo = new Arquivo(armazenamento);
+let atual = null, selecionado = null, logRx = null, timerGanho = null;
+
+const conexao = new Conexao({
+  aoLinha: tratarLinha,
+  aoEstado: (e) => {
+    $("conexao").dataset.estado = e;
+    txt("txtConexao", e === "conectado" ? `${conexao.canal.tipo}: ${conexao.canal.nome}` : e === "procurando" ? "Procurando…" : "Desconectado");
+    for (const id of ["btnBle", "btnUsb"]) $(id).hidden = e === "conectado";
+    $("btnDesconectar").hidden = e !== "conectado";
+    if (e === "desconectado") {
+      rodas.soltarTudo();
+      if (atual) { arquivo.finalizar(atual, 4); atual = null; desenharTudo(); }
+      registrar(conexao.ultimoTipo === "USB"
+        ? "Conexão USB perdida. Pelo cabo o robô não para sozinho: reconecte e aperte Parar, ou desligue o robô."
+        : "Conexão perdida. Pelo Bluetooth o robô para sozinho por segurança.", "erro");
+    }
+    atualizarLeitores();
+  },
+  aoErro: (m) => { aviso(m); registrar(m, "erro"); },
+});
+
+function enviar(cmd, silencioso = false) { if (conexao.enviar(cmd, silencioso)) registrar("> " + cmd, "env"); }
+
+// ---------------- Recepção ----------------
+function tratarLinha(linha) {
+  const r = analisarLinha(linha);
+  const v = r.v;
+  switch (r.tipo) {
+    case "E": return aoTelemetria(v);
+    case "P":
+      Object.assign(cfg, { modo: v[0], ref: v[1], vmax: v[2], tol: v[3], tmax: v[4], maTipo: v[5], maRpm: v[6], maDuty: v[7], maTempo: v[8], reto: v[9] });
+      for (let m = 0; m < 7; m++) cfg.ganhos[m] = v.slice(11 + m * 3, 14 + m * 3);
+      rodas.aoP(cfg);
+      return preencherControles();
+    case "C": cfg.dutyMax = v[0]; cfg.diam = (v[11] + v[12]) / 2 || 65; rodas.aoC(v); return atualizarMA();
+    case "R": {
+      const run = arquivo.alvoDoResultado(atual, v);
+      if (!run) return;
+      arquivo.aplicarResultado(run, v);
+      return concluir(run, v[9]);
+    }
+    case "LH": logRx = { cab: { modo: v[0], ref: v[1], kp: v[2], ki: v[3], kd: v[4], n: v[5], unidade: v[6], estado: v[7] }, am: [] }; txt("fonte", "Baixando dados do ESP32…"); return;
+    case "LD": if (logRx) logRx.am.push({ t: v[1], pos: v[2], u: v[3], cA: v[4], cB: v[5], rA: v[6], rB: v[7] }); return;
+    case "LF": {
+      const L = logRx; logRx = null;
+      if (!L) return;
+      const run = arquivo.anexarLog(L.cab, L.am);
+      if (!run) registrar(`Os dados chegaram incompletos (${L.am.length} de ${L.cab.n}). Toque em Baixar dados do ESP32 de novo.`, "erro");
+      else { selecionado = run.id; registrar(`Dados do ESP32 recebidos: ${run.amostras.length} amostras de ${MODOS[run.modo]}.`, "ok"); }
+      return desenharTudo();
+    }
+    case "T": return rodas.aoT(v);
+    case "N": return;
+    case "texto":
+      if (r.texto.includes("BLE anunciando")) setTimeout(() => conexao.ligarTelemetriaUsb(), 200);
+      if (r.texto.trim()) registrar(r.texto);
+  }
+}
+
+function aoTelemetria([t, est, modo, ref, pos, erroMm, u, cA, cB, rA, rB]) {
+  const antes = exp.estado;
+  Object.assign(exp, { estado: est, t, modo, ref, pos, erro: erroMm, u, cA, cB, rA, rB });
+  const rodando = est === 1 || est === 2, rodava = antes === 1 || antes === 2;
+  if (rodando && !atual) {
+    const unidade = modo === 0 && cfg.maTipo === 1 ? 1 : 0;
+    atual = arquivo.novo(modo, ref, cfg.ganhos[modo] || [0, 0, 0], cfg.tol, unidade);
+    selecionado = atual.id;
+  }
+  if (atual && rodando) { arquivo.adicionarAmostra(atual, { t, ref, pos, u, cA, cB, rA, rB }); atual.ref = ref; }
+  if (atual && !rodando && rodava) concluir(atual, est);
+  atualizarLeitores();
+  pedirDesenho();
+}
+
+function concluir(run, estado) {
+  arquivo.finalizar(run, estado);
+  atual = null;
+  if ($("autoLog").checked) setTimeout(() => enviar("LOG", true), 400);
+  desenharTudo();
+}
+
+// ---------------- Controles ----------------
+function habilitar() {
+  const ok = conexao.conectado, rodando = exp.estado === 1 || exp.estado === 2;
+  document.querySelectorAll(".req-con :is(button, input, select), button.req-con").forEach((el) => (el.disabled = !ok));
+  $("btnIniciar").disabled = !ok || rodando;
+  $("btnReiniciar").disabled = !ok || rodando;
+  $("btnParar").disabled = !ok;
+  document.querySelectorAll("[data-modo]").forEach((b) => (b.disabled = !ok || rodando));
+  rodas.bloquear(ok && rodando);
+}
+
+function preencherControles() {
+  document.querySelectorAll("[data-modo]").forEach((b) => b.setAttribute("aria-checked", String(Number(b.dataset.modo) === cfg.modo)));
+  const g = cfg.ganhos[cfg.modo] || [0, 0, 0];
+  ["kp", "ki", "kd"].forEach((k, i) => {
+    $("g-" + k).classList.toggle("inativo", !(TERMOS[cfg.modo] & (1 << i)));
+    if (!timerGanho && ![$("s-" + k), $("n-" + k)].includes(document.activeElement)) { $("s-" + k).value = g[i]; $("n-" + k).value = g[i]; }
+  });
+  $("grupoGanhos").hidden = cfg.modo === 0;
+  $("grupoMA").hidden = cfg.modo !== 0;
+  const val = (id, v) => { if (document.activeElement !== $(id)) $(id).value = v; };
+  val("s-ref", cfg.ref); val("n-ref", cfg.ref.toFixed(2));
+  val("vmax", cfg.vmax); val("tol", cfg.tol); val("tmax", cfg.tmax);
+  val("maTipo", cfg.maTipo); val("maValor", cfg.maTipo ? cfg.maDuty : cfg.maRpm); val("maTempo", cfg.maTempo);
+  txt("hModo", NOME_MODO[cfg.modo]);
+  atualizarMA();
+  desenharHistorico();
+}
+
+function atualizarMA() {
+  const tipo = Number($("maTipo").value), tempo = Number($("maTempo").value || 0), val = Number($("maValor").value || 0);
+  txt("maRotulo", tipo ? "PWM (%)" : "Velocidade (RPM)");
+  $("maValor").min = tipo ? 11 : 10; $("maValor").max = tipo ? cfg.dutyMax : 300;
+  let dica = "";
+  if (tipo === 0 && tempo <= 0 && val > 0) {
+    const vel = (val / 60) * Math.PI * cfg.diam / 1000;
+    dica = `Tempo automático de ${fmt(cfg.ref / vel, 2)} s para ${fmt(cfg.ref, 2)} m a ${fmt(vel, 3)} m/s.`;
+  } else if (tipo === 1 && tempo <= 0) dica = "Com PWM fixo, informe o tempo.";
+  txt("maDica", dica);
+}
+
+function enviarGanhos() {
+  clearTimeout(timerGanho);
+  timerGanho = setTimeout(() => {
+    timerGanho = null;
+    const g = ["kp", "ki", "kd"].map((k) => Number($("n-" + k).value) || 0);
+    cfg.ganhos[cfg.modo] = g;
+    enviar(`GANHO ${g.map((x) => +x.toFixed(3)).join(" ")}`);
+  }, 250);
+}
+
+function definirRef(v) {
+  v = Math.min(1, Math.max(0, v));
+  cfg.ref = v; $("s-ref").value = v; $("n-ref").value = v.toFixed(2);
+  atualizarMA(); enviar(`REF ${v.toFixed(3)}`);
+}
+
+// ---------------- Leitores ----------------
+function atualizarLeitores() {
+  const conectado = conexao.conectado;
+  txt("lModo", NOME_MODO[exp.modo] ?? "—");
+  txt("lEstado", conectado ? ESTADOS[exp.estado] ?? "—" : "Sem conexão");
+  $("ledEstado").dataset.e = conectado ? exp.estado : 0;
+  txt("lT", fmt(exp.t, 1));
+  txt("lRef", fmt(exp.ref, 3)); txt("lPos", fmt(exp.pos, 3)); txt("lErro", comSinal(exp.erro, 0));
+  txt("lVa", fmt(exp.cA, 0)); txt("lVb", fmt(exp.cB, 0)); txt("lRa", fmt(exp.rA, 0)); txt("lRb", fmt(exp.rB, 0));
+  const un = exp.modo === 0 && cfg.maTipo === 1 ? "%" : "RPM";
+  document.querySelectorAll(".uVel").forEach((e) => (e.textContent = un));
+  habilitar();
+}
+
+// ---------------- Desenho ----------------
+let pendente = false;
+function pedirDesenho() { if (!pendente) { pendente = true; requestAnimationFrame(() => { pendente = false; desenharTela(); }); } }
+function desenharTudo() { desenharHistorico(); desenharQuadro(); pedirDesenho(); }
+
+function runExibido() { return arquivo.porId(selecionado) || arquivo.runs[arquivo.runs.length - 1] || null; }
+
+function faixasDe(run, fantasma) {
+  const a = run ? run.amostras : [], f = fantasma ? fantasma.amostras : [];
+  const ref = run?.ref ?? cfg.ref, tol = (run?.tol ?? cfg.tol) / 1000, fechada = run && run.modo !== 0;
+  const fant = (pts, cor) => (fantasma && canais.fantasma ? [{ pts, cor, larg: 2, alfa: 0.35 }] : []);
+  return [
+    { rotulo: "Posição", unidade: "m", oculta: !canais.pos, linhasH: [ref], tol: fechada ? [ref - tol, ref + tol] : null,
+      series: [...fant(f.map((s) => [s.t, s.pos]), css("--pos")), { pts: a.map((s) => [s.t, s.pos]), cor: css("--pos"), larg: 2.5 }] },
+    { rotulo: "Erro", unidade: "mm", oculta: !canais.erro, linhasH: [0],
+      series: [...fant(f.map((s) => [s.t, ((s.ref ?? fantasma.ref) - s.pos) * 1000]), css("--erro")),
+        { pts: a.map((s) => [s.t, ((s.ref ?? ref) - s.pos) * 1000]), cor: css("--erro"), larg: 2.5 }] },
+    { rotulo: "Velocidade comandada", unidade: run?.unidade ? "%" : "RPM", oculta: !canais.vel, linhasH: [0],
+      series: [
+        ...(run?.unidade ? [] : [{ pts: a.map((s) => [s.t, s.rA]), cor: css("--roda-a"), larg: 1, trac: true, alfa: 0.7 },
+          { pts: a.map((s) => [s.t, s.rB]), cor: css("--roda-b"), larg: 1, trac: true, alfa: 0.7 }]),
+        { pts: a.map((s) => [s.t, s.cA]), cor: css("--roda-a"), larg: 2.2 },
+        { pts: a.map((s) => [s.t, s.cB]), cor: css("--roda-b"), larg: 2.2 }] },
+  ];
+}
+
+function desenharTela() {
+  const run = runExibido(), fantasma = run ? arquivo.anterior(run) : null;
+  const xMax = Math.max(run?.amostras.at(-1)?.t || 5, fantasma && canais.fantasma ? fantasma.amostras.at(-1)?.t || 0 : 0);
+  desenharOsc($("osc"), faixasDe(run, fantasma), { xMax });
+  if (!run) { txt("tituloTela", "Nenhum experimento ainda"); txt("fonte", "Inicie um experimento para registrar os dados."); return; }
+  const ganhos = run.modo ? `, Kp ${fmt(run.kp, 2)} Ki ${fmt(run.ki, 2)} Kd ${fmt(run.kd, 2)}` : "";
+  txt("tituloTela", `Tentativa ${run.id} de ${NOME_MODO[run.modo]}${ganhos}, referência ${fmt(run.ref, 2)} m`);
+  const origem = run === atual ? `Recebendo ao vivo, ${run.amostras.length} amostras`
+    : run.logEsp ? `Dados registrados no ESP32, ${run.amostras.length} amostras a cada 100 ms`
+    : `Dados recebidos ao vivo, ${run.amostras.length} amostras. Baixe do ESP32 para o registro completo`;
+  txt("fonte", origem + (fantasma && canais.fantasma ? `. Em segundo plano, a tentativa ${fantasma.id}.` : "."));
+}
+
+function linhaMetricas(run) {
+  const m = run.met || {};
+  return `final ${fmt(m.final, 3)} m, erro ${comSinal(m.erro, 1)} mm, sobressinal ${fmt(m.sobre, 1)} mm, acomodação ${fmt(m.tAcom, 2)} s`;
+}
+
+function desenharHistorico() {
+  const lista = arquivo.doModo(cfg.modo).filter((r) => arquivo.concluido(r)).reverse();
+  const oficial = arquivo.oficial(cfg.modo);
+  const sel = runExibido();
+  $("tentativas").innerHTML = lista.map((r) => `
+    <li class="tentativa${sel === r ? " sel" : ""}" data-id="${r.id}">
+      <button class="estrela" aria-pressed="${oficial === r}" aria-label="Marcar a tentativa ${r.id} como oficial">★</button>
+      <span class="cab">Tentativa ${r.id}<small>${r.hora}, ${r.modo ? `Kp ${fmt(r.kp, 2)} Ki ${fmt(r.ki, 2)} Kd ${fmt(r.kd, 2)}` : `ref ${fmt(r.ref, 2)} m`}</small></span>
+      <span class="botoes"><button class="tecla ver">Ver</button>${r.modo ? `<button class="tecla usar req-con"${conexao.conectado ? "" : " disabled"}>Usar ganhos</button>` : ""}</span>
+      <span class="num">${linhaMetricas(r)}</span>
+    </li>`).join("") || `<li class="vazio">Nenhuma tentativa de ${NOME_MODO[cfg.modo]} ainda. Ajuste os ganhos e toque em Iniciar.</li>`;
+}
+
+function desenharQuadro() {
+  const oficiais = MODOS.map((_, m) => arquivo.oficial(m));
+  const series = oficiais.filter(Boolean).map((r) => ({ pts: r.amostras.map((s) => [s.t, s.pos]), cor: COR_MODO[r.modo], larg: 2.4 }));
+  const refs = [...new Set(oficiais.filter(Boolean).map((r) => r.ref))];
+  desenharOsc($("oscQuadro"), [{ rotulo: "Posição", unidade: "m", linhasH: refs, series }], { divY: 5 });
+  $("tabela7").innerHTML = oficiais.map((r, m) => {
+    if (!r) return `<tr class="sem" style="--c:${COR_MODO[m]}"><td>${MODOS[m]}</td><td colspan="6">sem tentativa</td></tr>`;
+    const x = r.met || {};
+    const g = m === 0 ? "—" : [r.kp, r.ki, r.kd].map((v, i) => (TERMOS[m] & (1 << i) ? fmt(v, 2) : "–")).join(" / ");
+    return `<tr style="--c:${COR_MODO[m]}"><td>${MODOS[m]}</td><td>${g}</td><td>${fmt(x.final, 3)}</td><td>${comSinal(x.erro, 1)}</td><td>${fmt(x.sobre, 0)} mm</td><td>${fmt(x.tSub, 2)}</td><td>${fmt(x.tAcom, 2)}</td></tr>`;
+  }).join("");
+}
+
+// ---------------- Mensagens e arquivos ----------------
+function registrar(t, classe) {
+  const log = $("log"), d = document.createElement("div");
+  if (classe) d.className = classe;
+  d.textContent = t; log.appendChild(d);
+  while (log.childElementCount > 300) log.firstChild.remove();
+  log.scrollTop = log.scrollHeight;
+}
+function aviso(t) { txt("aviso", t); }
+function baixar(nome, conteudo) {
+  const url = conteudo.startsWith("data:") ? conteudo : URL.createObjectURL(new Blob(["﻿" + conteudo], { type: "text/csv" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: nome });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+const carimbo = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+
+// ---------------- Modo da tela ----------------
+function definirTela(t) {
+  rodas.soltarTudo();
+  document.body.dataset.tela = t;
+  document.querySelectorAll(".seletor-tela [data-tela]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.tela === t)));
+  try { armazenamento.setItem("ihm-c-tela", t); } catch (e) {}
+  desenharQuadro(); pedirDesenho(); rodas.desenhar();
+}
+
+// ---------------- Ligações ----------------
+function ligar() {
+  on("btnBle", "click", () => conexao.conectarBle());
+  on("btnUsb", "click", () => conexao.conectarUsb());
+  on("btnDesconectar", "click", () => conexao.desconectar());
+  on("btnIniciar", "click", () => {
+    if (cfg.modo === 0 && Number($("maTipo").value) === 1 && !(Number($("maTempo").value) > 0)) return aviso("Com PWM fixo, informe o tempo antes de iniciar.");
+    aviso(""); enviar("INICIAR");
+  });
+  on("btnParar", "click", () => enviar("PARAR"));
+  on("btnReiniciar", "click", () => enviar("REINICIAR"));
+  document.querySelectorAll("[data-modo]").forEach((b) => b.addEventListener("click", () => {
+    cfg.modo = Number(b.dataset.modo); selecionado = arquivo.doModo(cfg.modo).at(-1)?.id ?? selecionado;
+    preencherControles(); pedirDesenho(); enviar(`MODO ${MODOS[cfg.modo]}`);
+  }));
+  for (const k of ["kp", "ki", "kd"]) {
+    on("s-" + k, "input", (e) => { $("n-" + k).value = e.target.value; enviarGanhos(); });
+    on("n-" + k, "change", (e) => { $("s-" + k).value = e.target.value; enviarGanhos(); });
+  }
+  on("s-ref", "input", (e) => { $("n-ref").value = Number(e.target.value).toFixed(2); });
+  on("s-ref", "change", (e) => definirRef(Number(e.target.value)));
+  on("n-ref", "change", (e) => definirRef(Number(String(e.target.value).replace(",", ".")) || 0));
+  document.querySelectorAll("[data-ref]").forEach((b) => b.addEventListener("click", () => definirRef(Number(b.dataset.ref))));
+  const enviarMA = () => { atualizarMA(); enviar(`ABERTA ${$("maTipo").value} ${$("maValor").value || 0} ${$("maTempo").value || 0}`); };
+  on("maTipo", "change", () => { $("maValor").value = Number($("maTipo").value) ? cfg.maDuty : cfg.maRpm; enviarMA(); });
+  on("maValor", "change", enviarMA); on("maTempo", "change", enviarMA);
+  on("vmax", "change", (e) => enviar(`VMAX ${e.target.value}`));
+  on("tol", "change", (e) => enviar(`TOL ${e.target.value}`));
+  on("tmax", "change", (e) => enviar(`TMAX ${e.target.value}`));
+  on("btnSalvar", "click", () => enviar("SALVAR"));
+  on("btnLog", "click", () => enviar("LOG"));
+  on("btnCsv", "click", () => arquivo.runs.length && baixar(`dados_experimentos_${carimbo()}.csv`, arquivo.csvDados()));
+  on("btnResumo", "click", () => arquivo.runs.length && baixar(`resumo_experimentos_${carimbo()}.csv`, arquivo.csvResumo()));
+  on("btnPng", "click", () => baixar(`tela_${carimbo()}.png`, $("osc").toDataURL("image/png")));
+  on("formCmd", "submit", (e) => { e.preventDefault(); const c = $("cmd").value.trim(); if (c) { enviar(c); $("cmd").value = ""; } });
+  document.querySelectorAll(".canal").forEach((b) => b.addEventListener("click", () => {
+    canais[b.dataset.canal] = !canais[b.dataset.canal]; b.setAttribute("aria-pressed", String(canais[b.dataset.canal])); pedirDesenho();
+  }));
+  document.querySelectorAll(".seletor-tela [data-tela]").forEach((b) => b.addEventListener("click", () => definirTela(b.dataset.tela)));
+  on("tentativas", "click", (e) => {
+    const li = e.target.closest("[data-id]"); if (!li) return;
+    const run = arquivo.porId(Number(li.dataset.id)); if (!run) return;
+    if (e.target.closest(".estrela")) { arquivo.marcarOficial(run.id); }
+    else if (e.target.closest(".usar")) { enviar(`MODO ${MODOS[run.modo]}`); enviar(`GANHO ${run.kp} ${run.ki} ${run.kd}`); cfg.ganhos[run.modo] = [run.kp, run.ki, run.kd]; preencherControles(); }
+    selecionado = run.id;
+    desenharTudo();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && conexao.conectado) { rodas.soltarTudo(true); return enviar("PARAR"); }
+    const digitando = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+    const tela = document.body.dataset.tela;
+    if (!digitando && (e.key === "m" || e.key === "M") && (tela === "sintonia" || tela === "apresentacao")) definirTela(tela === "sintonia" ? "apresentacao" : "sintonia");
+  });
+  window.addEventListener("resize", () => { desenharQuadro(); pedirDesenho(); rodas.desenhar(); });
+  if (!navigator.bluetooth && !navigator.serial) aviso("Abra esta página no Chrome ou no Edge para conectar ao robô por Bluetooth ou USB.");
+}
+
+function iniciar() {
+  arquivo.carregar();
+  rodas.iniciar();
+  selecionado = arquivo.runs.at(-1)?.id ?? null;
+  ligar();
+  let tela = "sintonia"; try { tela = armazenamento.getItem("ihm-c-tela") || "sintonia"; } catch (e) {}
+  definirTela(["apresentacao", "dirigir", "reto"].includes(tela) ? tela : "sintonia");
+  preencherControles();
+  atualizarLeitores();
+  desenharTudo();
+}
+iniciar();
+
+</script>
+</body>
+</html>
