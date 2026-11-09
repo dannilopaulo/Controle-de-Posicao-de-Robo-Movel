@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1010" width="1500" height="1010" font-family="Arial, Helvetica, sans-serif">
+  <title>Esquemático de ligações do robô móvel 2WD (bateria de 12 V)</title>
+  <rect width="1500" height="1010" fill="#ffffff"/>
+
+  <!-- Título -->
+  <text x="40" y="70" font-size="22" font-weight="bold" fill="#24292f">Robô móvel 2WD</text>
+  <text x="40" y="94" font-size="14" fill="#57606a">Esquemático de ligações</text>
+  <text x="40" y="114" font-size="14" fill="#57606a">Bateria de 12 V</text>
+
+  <!-- ================= FIOS ================= -->
+  <g fill="none" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Bateria -> L298N -->
+    <path d="M150 340 H300" stroke="#24292f"/>
+    <path d="M150 390 H300" stroke="#cf222e"/>
+    <!-- GND comum até o ESP32 -->
+    <path d="M230 340 V26 H980 V170" stroke="#24292f"/>
+    <!-- 5 V do L298N até o ESP32 -->
+    <path d="M300 290 H260 V46 H930 V170" stroke="#d4730c"/>
+
+    <!-- L298N -> ESP32 (PWM e sentido) -->
+    <path d="M540 330 H880" stroke="#1f6feb"/>
+    <path d="M540 370 H880" stroke="#1a7f37"/>
+    <path d="M540 410 H880" stroke="#1a7f37"/>
+    <path d="M540 450 H880" stroke="#1a7f37"/>
+    <path d="M540 490 H880" stroke="#1a7f37"/>
+    <path d="M540 530 H880" stroke="#1f6feb"/>
+
+    <!-- Motores -->
+    <path d="M380 200 V130" stroke="#57606a"/>
+    <path d="M460 200 V130" stroke="#57606a"/>
+    <path d="M380 700 V770" stroke="#57606a"/>
+    <path d="M460 700 V770" stroke="#57606a"/>
+
+    <!-- ESP32 -> sensores LM393 -->
+    <path d="M1100 262 H1300" stroke="#8250df"/>
+    <path d="M1100 552 H1300" stroke="#8250df"/>
+    <!-- 3V3 -->
+    <path d="M1100 350 H1180" stroke="#bf3989"/>
+    <path d="M1180 302 V492" stroke="#bf3989"/>
+    <path d="M1180 302 H1300" stroke="#bf3989"/>
+    <path d="M1180 492 H1300" stroke="#bf3989"/>
+    <!-- GND (com salto sobre o barramento 3V3) -->
+    <path d="M1100 400 H1172 a8 8 0 0 1 16 0 H1230" stroke="#24292f"/>
+    <path d="M1230 342 V452" stroke="#24292f"/>
+    <path d="M1230 342 H1300" stroke="#24292f"/>
+    <path d="M1230 452 H1300" stroke="#24292f"/>
+  </g>
+
+  <!-- Pontos de junção -->
+  <g>
+    <circle cx="230" cy="340" r="5" fill="#24292f"/>
+    <circle cx="1180" cy="350" r="5" fill="#bf3989"/>
+    <circle cx="1230" cy="400" r="5" fill="#24292f"/>
+  </g>
+
+  <!-- ================= BATERIA ================= -->
+  <rect x="40" y="300" width="110" height="130" rx="8" fill="#f6f8fa" stroke="#24292f" stroke-width="2"/>
+  <text x="52" y="328" font-size="14" font-weight="bold" fill="#24292f">Bateria</text>
+  <text x="52" y="358" font-size="22" font-weight="bold" fill="#cf222e">12 V</text>
+  <text x="140" y="345" font-size="16" font-weight="bold" text-anchor="end" fill="#24292f">−</text>
+  <text x="140" y="395" font-size="16" font-weight="bold" text-anchor="end" fill="#cf222e">+</text>
+  <text x="40" y="470" font-size="12" fill="#57606a">Recomendado:</text>
+  <text x="40" y="488" font-size="12" fill="#57606a">• chave liga/desliga</text>
+  <text x="48" y="504" font-size="12" fill="#57606a">no fio +12 V</text>
+  <text x="40" y="522" font-size="12" fill="#57606a">• fusível em série</text>
+
+  <!-- ================= L298N ================= -->
+  <rect x="300" y="200" width="240" height="500" rx="10" fill="#fdeaea" stroke="#8c1d1d" stroke-width="2"/>
+  <text x="420" y="250" font-size="18" font-weight="bold" text-anchor="middle" fill="#24292f">Driver L298N</text>
+  <text x="420" y="270" font-size="12" text-anchor="middle" fill="#57606a">ponte H dupla</text>
+  <!-- OUT -->
+  <text x="380" y="222" font-size="12" text-anchor="middle" fill="#24292f">OUT1</text>
+  <text x="460" y="222" font-size="12" text-anchor="middle" fill="#24292f">OUT2</text>
+  <text x="380" y="686" font-size="12" text-anchor="middle" fill="#24292f">OUT3</text>
+  <text x="460" y="686" font-size="12" text-anchor="middle" fill="#24292f">OUT4</text>
+  <!-- Lado esquerdo -->
+  <text x="310" y="294" font-size="12" fill="#24292f">+5V (saída)</text>
+  <text x="310" y="344" font-size="12" fill="#24292f">GND</text>
+  <text x="310" y="394" font-size="12" fill="#24292f">+12V (6–35V)</text>
+  <!-- Lado direito -->
+  <text x="530" y="334" font-size="12" text-anchor="end" fill="#24292f">ENA</text>
+  <text x="530" y="374" font-size="12" text-anchor="end" fill="#24292f">IN1</text>
+  <text x="530" y="414" font-size="12" text-anchor="end" fill="#24292f">IN2</text>
+  <text x="530" y="454" font-size="12" text-anchor="end" fill="#24292f">IN3</text>
+  <text x="530" y="494" font-size="12" text-anchor="end" fill="#24292f">IN4</text>
+  <text x="530" y="534" font-size="12" text-anchor="end" fill="#24292f">ENB</text>
+  <!-- Nota -->
+  <text x="420" y="600" font-size="12" text-anchor="middle" fill="#8c1d1d">Jumpers ENA e ENB: removidos</text>
+  <text x="420" y="618" font-size="12" text-anchor="middle" fill="#8c1d1d">Jumper "ativa 5V": colocado</text>
+
+  <!-- Pinos do L298N -->
+  <g fill="#ffffff" stroke="#24292f" stroke-width="2">
+    <circle cx="300" cy="290" r="4"/><circle cx="300" cy="340" r="4"/><circle cx="300" cy="390" r="4"/>
+    <circle cx="540" cy="330" r="4"/><circle cx="540" cy="370" r="4"/><circle cx="540" cy="410" r="4"/>
+    <circle cx="540" cy="450" r="4"/><circle cx="540" cy="490" r="4"/><circle cx="540" cy="530" r="4"/>
+    <circle cx="380" cy="200" r="4"/><circle cx="460" cy="200" r="4"/>
+    <circle cx="380" cy="700" r="4"/><circle cx="460" cy="700" r="4"/>
+    <circle cx="150" cy="340" r="4"/><circle cx="150" cy="390" r="4"/>
+  </g>
+
+  <!-- Rótulos dos fios L298N -> ESP32 -->
+  <g font-size="12" text-anchor="middle">
+    <text x="710" y="324" fill="#1f6feb">PWM motor A · GPIO 25</text>
+    <text x="710" y="364" fill="#1a7f37">sentido A · GPIO 26</text>
+    <text x="710" y="404" fill="#1a7f37">sentido A · GPIO 27</text>
+    <text x="710" y="444" fill="#1a7f37">sentido B · GPIO 32</text>
+    <text x="710" y="484" fill="#1a7f37">sentido B · GPIO 13</text>
+    <text x="710" y="524" fill="#1f6feb">PWM motor B · GPIO 33</text>
+  </g>
+  <!-- Rótulos das barras de alimentação -->
+  <text x="700" y="20" font-size="12" fill="#24292f">GND comum (L298N, ESP32, sensores e bateria −)</text>
+  <text x="700" y="62" font-size="12" fill="#d4730c">+5V do L298N → pino 5V (VIN) do ESP32</text>
+
+  <!-- ================= MOTORES ================= -->
+  <rect x="300" y="64" width="240" height="66" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="2"/>
+  <text x="420" y="88" font-size="14" font-weight="bold" text-anchor="middle" fill="#24292f">Motor A (TT) + roda</text>
+  <text x="420" y="108" font-size="12" text-anchor="middle" fill="#57606a">disco encoder de 20 furos no eixo</text>
+
+  <rect x="300" y="770" width="240" height="66" rx="8" fill="#fff8c5" stroke="#9a6700" stroke-width="2"/>
+  <text x="420" y="794" font-size="14" font-weight="bold" text-anchor="middle" fill="#24292f">Motor B (TT) + roda</text>
+  <text x="420" y="814" font-size="12" text-anchor="middle" fill="#57606a">disco encoder de 20 furos no eixo</text>
+
+  <!-- ================= ESP32 ================= -->
+  <rect x="880" y="170" width="220" height="550" rx="10" fill="#e6f0ff" stroke="#0a3069" stroke-width="2"/>
+  <text x="990" y="232" font-size="18" font-weight="bold" text-anchor="middle" fill="#24292f">ESP32 DevKit</text>
+  <text x="930" y="192" font-size="12" text-anchor="middle" fill="#24292f">5V</text>
+  <text x="980" y="192" font-size="12" text-anchor="middle" fill="#24292f">GND</text>
+  <!-- Pinos esquerdos -->
+  <g font-size="12" fill="#24292f">
+    <text x="890" y="334">GPIO 25</text>
+    <text x="890" y="374">GPIO 26</text>
+    <text x="890" y="414">GPIO 27</text>
+    <text x="890" y="454">GPIO 32</text>
+    <text x="890" y="494">GPIO 13</text>
+    <text x="890" y="534">GPIO 33</text>
+  </g>
+  <!-- Pinos direitos -->
+  <g font-size="12" fill="#24292f" text-anchor="end">
+    <text x="1090" y="266">GPIO 35</text>
+    <text x="1090" y="354">3V3</text>
+    <text x="1090" y="404">GND</text>
+    <text x="1090" y="556">GPIO 34</text>
+  </g>
+  <g font-size="12" text-anchor="middle" fill="#57606a">
+    <text x="990" y="620">Alimentado pelo 5V do L298N</text>
+    <text x="990" y="638">Bluetooth LE: Carrinho-ESP32</text>
+    <text x="990" y="656">USB Serial: 115200 baud</text>
+  </g>
+  <g fill="#ffffff" stroke="#24292f" stroke-width="2">
+    <circle cx="880" cy="330" r="4"/><circle cx="880" cy="370" r="4"/><circle cx="880" cy="410" r="4"/>
+    <circle cx="880" cy="450" r="4"/><circle cx="880" cy="490" r="4"/><circle cx="880" cy="530" r="4"/>
+    <circle cx="930" cy="170" r="4"/><circle cx="980" cy="170" r="4"/>
+    <circle cx="1100" cy="262" r="4"/><circle cx="1100" cy="350" r="4"/>
+    <circle cx="1100" cy="400" r="4"/><circle cx="1100" cy="552" r="4"/>
+  </g>
+  <text x="1200" y="256" font-size="12" text-anchor="middle" fill="#8250df">D0 do sensor A</text>
+  <text x="1200" y="546" font-size="12" text-anchor="middle" fill="#8250df">D0 do sensor B</text>
+  <text x="1140" y="344" font-size="11" text-anchor="middle" fill="#bf3989">3V3</text>
+
+  <!-- ================= SENSORES LM393 ================= -->
+  <rect x="1300" y="200" width="170" height="170" rx="8" fill="#e8f5e9" stroke="#1a7f37" stroke-width="2"/>
+  <text x="1385" y="226" font-size="14" font-weight="bold" text-anchor="middle" fill="#24292f">LM393 A</text>
+  <text x="1385" y="244" font-size="11" text-anchor="middle" fill="#57606a">lê o disco do motor A</text>
+  <text x="1310" y="266" font-size="12" fill="#24292f">D0</text>
+  <text x="1310" y="306" font-size="12" fill="#24292f">VCC</text>
+  <text x="1310" y="346" font-size="12" fill="#24292f">GND</text>
+  <text x="1385" y="364" font-size="11" text-anchor="middle" fill="#57606a">A0: não usado</text>
+
+  <rect x="1300" y="400" width="170" height="210" rx="8" fill="#e8f5e9" stroke="#1a7f37" stroke-width="2"/>
+  <text x="1385" y="426" font-size="14" font-weight="bold" text-anchor="middle" fill="#24292f">LM393 B</text>
+  <text x="1385" y="444" font-size="11" text-anchor="middle" fill="#57606a">lê o disco do motor B</text>
+  <text x="1310" y="456" font-size="12" fill="#24292f">GND</text>
+  <text x="1310" y="496" font-size="12" fill="#24292f">VCC</text>
+  <text x="1310" y="556" font-size="12" fill="#24292f">D0</text>
+  <text x="1385" y="596" font-size="11" text-anchor="middle" fill="#57606a">A0: não usado</text>
+  <g fill="#ffffff" stroke="#24292f" stroke-width="2">
+    <circle cx="1300" cy="262" r="4"/><circle cx="1300" cy="302" r="4"/><circle cx="1300" cy="342" r="4"/>
+    <circle cx="1300" cy="452" r="4"/><circle cx="1300" cy="492" r="4"/><circle cx="1300" cy="552" r="4"/>
+  </g>
+
+  <!-- ================= LEGENDA ================= -->
+  <g font-size="12" fill="#24292f">
+    <text x="40" y="884" font-size="14" font-weight="bold">Legenda</text>
+    <g stroke-width="4" stroke-linecap="round">
+      <line x1="40" y1="904" x2="70" y2="904" stroke="#cf222e"/><text x="78" y="908" stroke="none">+12 V</text>
+      <line x1="150" y1="904" x2="180" y2="904" stroke="#d4730c"/><text x="188" y="908" stroke="none">+5 V</text>
+      <line x1="260" y1="904" x2="290" y2="904" stroke="#bf3989"/><text x="298" y="908" stroke="none">3,3 V</text>
+      <line x1="370" y1="904" x2="400" y2="904" stroke="#24292f"/><text x="408" y="908" stroke="none">GND</text>
+      <line x1="470" y1="904" x2="500" y2="904" stroke="#1f6feb"/><text x="508" y="908" stroke="none">PWM</text>
+      <line x1="570" y1="904" x2="600" y2="904" stroke="#1a7f37"/><text x="608" y="908" stroke="none">Sentido (IN1 a IN4)</text>
+      <line x1="740" y1="904" x2="770" y2="904" stroke="#8250df"/><text x="778" y="908" stroke="none">Pulsos do encoder (D0)</text>
+      <line x1="940" y1="904" x2="970" y2="904" stroke="#57606a"/><text x="978" y="908" stroke="none">Fios do motor</text>
+    </g>
+  </g>
+
+  <!-- ================= NOTAS ================= -->
+  <g font-size="12" fill="#57606a">
+    <text x="40" y="940">1. Remova os jumpers ENA e ENB do L298N: o PWM do ESP32 entra nesses pinos. Mantenha o jumper "ativa 5V" (limite de 12 V da bateria).</text>
+    <text x="40" y="960">2. Com o cabo USB conectado, desligue o fio de 5V (ou a bateria) para não alimentar o ESP32 por duas fontes ao mesmo tempo.</text>
+    <text x="40" y="980">3. Com 12 V, mantenha o duty máximo baixo (padrão 50 %, comando L): motores TT costumam ser de 3 a 6 V.</text>
+    <text x="40" y="1000">4. Os sensores LM393 usam 3V3 para que a saída D0 fique em 3,3 V, nível seguro para o GPIO. Os GPIO 34 e 35 são somente entrada.</text>
+  </g>
+</svg>
